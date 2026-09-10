@@ -3,6 +3,8 @@ import sys
 import json
 import subprocess
 import logging
+import threading
+import time
 import telebot
 from telebot import types
 
@@ -32,7 +34,6 @@ def load_projects():
         except Exception as e:
             logger.error(f"Error loading projects.json: {e}")
     
-    # Defaults if file missing
     return {
         "learn-with-runa": os.path.join(USER_HOME_DIR, "learn-with-runa"),
         "general": USER_HOME_DIR
@@ -48,10 +49,7 @@ def save_projects(projects_dict):
 projects = load_projects()
 
 # User State Storage
-# user_active_project[user_id] = "project_name"
 user_active_project = {}
-
-# user_project_histories[user_id][project_name] = [list of messages]
 user_project_histories = {}
 
 def update_bot_commands():
@@ -97,7 +95,10 @@ def send_long_message(chat_id: int, text: str, reply_markup=None):
         try:
             bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=reply_markup)
         except Exception:
-            bot.send_message(chat_id, text, reply_markup=reply_markup)
+            try:
+                bot.send_message(chat_id, text, reply_markup=reply_markup)
+            except Exception as e:
+                logger.error(f"Error sending message: {e}")
         return
 
     # Split message
@@ -107,7 +108,10 @@ def send_long_message(chat_id: int, text: str, reply_markup=None):
         try:
             bot.send_message(chat_id, chunk, parse_mode="Markdown", reply_markup=markup)
         except Exception:
-            bot.send_message(chat_id, chunk, reply_markup=markup)
+            try:
+                bot.send_message(chat_id, chunk, reply_markup=markup)
+            except Exception as e:
+                logger.error(f"Error sending chunk: {e}")
 
 def get_agy_response(user_id: int, user_text: str) -> str:
     curr_project = user_active_project.get(user_id, "learn-with-runa")
@@ -122,11 +126,18 @@ def get_agy_response(user_id: int, user_text: str) -> str:
     if curr_project not in user_project_histories[user_id]:
         user_project_histories[user_id][curr_project] = []
     
-    # Keep last 10 messages for context
-    history = user_project_histories[user_id][curr_project][-10:]
+    # Keep last 6 messages for context, truncated if long
+    history = user_project_histories[user_id][curr_project][-6:]
+    truncated_history = []
+    for h in history:
+        if len(h) > 500:
+            truncated_history.append(h[:497] + "...")
+        else:
+            truncated_history.append(h)
+
     context_str = ""
-    if history:
-        context_str = f"Recent History for [{curr_project}]:\n" + "\n".join(history) + "\n\n"
+    if truncated_history:
+        context_str = f"Recent History for [{curr_project}]:\n" + "\n".join(truncated_history) + "\n\n"
     
     system_prompt = get_system_prompt(curr_project, project_path)
     full_prompt = f"{system_prompt}\n{context_str}User message: {user_text}"
@@ -134,28 +145,30 @@ def get_agy_response(user_id: int, user_text: str) -> str:
     try:
         cmd = ["agy", "-p", full_prompt, "--dangerously-skip-permissions"]
         
+        # Jalankan subprocess agy
         result = subprocess.run(
             cmd,
             cwd=project_path,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             encoding='utf-8',
-            timeout=180
+            errors='replace',
+            timeout=1800  # Tingkatkan timeout ke 30 menit untuk task berat/banyak
         )
         
         if result.returncode == 0 and result.stdout.strip():
             response_text = result.stdout.strip()
-            # Save history per project
             user_project_histories[user_id][curr_project].append(f"User: {user_text}")
             user_project_histories[user_id][curr_project].append(f"Runa: {response_text}")
             return response_text
         else:
             err = result.stderr.strip() or "No output from agy."
             logger.error(f"agy error: {err}")
-            return "Gomen ne~ Ada masalah saat memproses pesan kamu di project ini. Coba lagi ya!"
+            return f"Gomen ne~ Ada masalah saat memproses pesan kamu di project ini:\n`{err[:500]}`"
     except subprocess.TimeoutExpired:
         logger.error("agy command timed out.")
-        return "Gomen ne~ Perintah ini butuh waktu terlalu lama sehingga timeout. Coba sederhanakan ya!"
+        return "Gomen ne~ Perintah ini memakan waktu sangat lama (lebih dari 30 menit) sehingga timeout. Coba bagi task menjadi beberapa tahap kecil ya! ✨"
     except Exception as e:
         logger.error(f"Execution error: {e}")
         return f"Error executing agy: {e}"
@@ -163,7 +176,10 @@ def get_agy_response(user_id: int, user_text: str) -> str:
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     if message.from_user.id != ALLOWED_USER_ID:
-        bot.reply_to(message, "⛔ Access denied.")
+        try:
+            bot.reply_to(message, "⛔ Access denied.")
+        except Exception:
+            pass
         return
     
     curr_proj = user_active_project.get(message.from_user.id, "learn-with-runa")
@@ -201,26 +217,35 @@ def list_projects(message):
         f"Project Aktif Saat Ini: `{curr_proj}`\n\n"
         "Pilih project di bawah ini untuk pindah konteks coding dengan 1-klik, atau gunakan `/spawn <nama>` untuk buat project baru:"
     )
-    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+    try:
+        bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+    except Exception as e:
+        logger.error(f"Error sending projects list: {e}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("select_proj:"))
 def callback_select_project(call):
     if call.from_user.id != ALLOWED_USER_ID:
-        bot.answer_callback_query(call.id, "Access denied.")
+        try:
+            bot.answer_callback_query(call.id, "Access denied.")
+        except Exception:
+            pass
         return
     
     proj_name = call.data.split("select_proj:")[1]
     if proj_name in projects:
         user_active_project[call.from_user.id] = proj_name
         proj_path = projects[proj_name]
-        bot.answer_callback_query(call.id, f"Switched to project: {proj_name}")
-        bot.send_message(
-            call.message.chat.id,
-            f"Yokatta~! Konteks coding sekarang berhasil dipindah ke project: **{proj_name}** 🚀\n"
-            f"📂 Directory: `{proj_path}`\n\n"
-            f"Semua history & percakapan di project ini terisolasi dan aman! Mau kerjain apa di {proj_name}?",
-            parse_mode="Markdown"
-        )
+        try:
+            bot.answer_callback_query(call.id, f"Switched to project: {proj_name}")
+            bot.send_message(
+                call.message.chat.id,
+                f"Yokatta~! Konteks coding sekarang berhasil dipindah ke project: **{proj_name}** 🚀\n"
+                f"📂 Directory: `{proj_path}`\n\n"
+                f"Semua history & percakapan di project ini terisolasi dan aman! Mau kerjain apa di {proj_name}?",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Error handling callback: {e}")
 
 @bot.message_handler(commands=['spawn', 'use', 'project'])
 def spawn_project(message):
@@ -229,25 +254,24 @@ def spawn_project(message):
     
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        bot.reply_to(
-            message,
-            "Gunakan format: `/spawn <nama_project>`\nContoh: `/spawn e-commerce-app`",
-            parse_mode="Markdown"
-        )
+        try:
+            bot.reply_to(
+                message,
+                "Gunakan format: `/spawn <nama_project>`\nContoh: `/spawn e-commerce-app`",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
         return
     
     proj_name = args[1].strip().replace(" ", "-")
     proj_path = os.path.join(USER_HOME_DIR, proj_name)
     
-    # Ensure directory exists
     if not os.path.exists(proj_path):
         os.makedirs(proj_path, exist_ok=True)
     
-    # Save project to registry
     projects[proj_name] = proj_path
     save_projects(projects)
-    
-    # Set active project
     user_active_project[message.from_user.id] = proj_name
     
     response = (
@@ -255,7 +279,10 @@ def spawn_project(message):
         f"📂 Path: `{proj_path}`\n\n"
         f"Konteks Runa sekarang sudah otomatis pindah ke `{proj_name}`. Semua perintah coding dan memory akan fokus di folder ini! ✨"
     )
-    bot.send_message(message.chat.id, response, parse_mode="Markdown")
+    try:
+        bot.send_message(message.chat.id, response, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error sending spawn response: {e}")
 
 @bot.message_handler(commands=['general', 'chat'])
 def switch_general(message):
@@ -263,11 +290,14 @@ def switch_general(message):
         return
     
     user_active_project[message.from_user.id] = "general"
-    bot.reply_to(
-        message,
-        "💬 Mode diubah ke **General Chat / English Practice**! Keterangan project dinonaktifkan. Mari ngobrol santai! 😊",
-        parse_mode="Markdown"
-    )
+    try:
+        bot.reply_to(
+            message,
+            "💬 Mode diubah ke **General Chat / English Practice**! Keterangan project dinonaktifkan. Mari ngobrol santai! 😊",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
 
 @bot.message_handler(commands=['reset'])
 def reset_history(message):
@@ -280,7 +310,10 @@ def reset_history(message):
     if user_id in user_project_histories and curr_proj in user_project_histories[user_id]:
         user_project_histories[user_id][curr_proj] = []
     
-    bot.reply_to(message, f"Yokatta~! Memory percakapan untuk project **{curr_proj}** sudah di-reset! ✨", parse_mode="Markdown")
+    try:
+        bot.reply_to(message, f"Yokatta~! Memory percakapan untuk project **{curr_proj}** sudah di-reset! ✨", parse_mode="Markdown")
+    except Exception:
+        pass
 
 @bot.message_handler(commands=['status'])
 def check_status(message):
@@ -297,27 +330,69 @@ def check_status(message):
         f"• Registered Projects: `{len(projects)}` project(s)\n"
         f"• Engine: Antigravity CLI (`agy`)\n"
     )
-    bot.send_message(message.chat.id, status_text, parse_mode="Markdown")
+    try:
+        bot.send_message(message.chat.id, status_text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error checking status: {e}")
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     if message.from_user.id != ALLOWED_USER_ID:
-        bot.reply_to(message, "⛔ Access denied.")
+        try:
+            bot.reply_to(message, "⛔ Access denied.")
+        except Exception:
+            pass
         return
     
     user_text = message.text
     if not user_text:
         return
 
-    # Send typing action
-    bot.send_chat_action(message.chat.id, 'typing')
-    
-    # Get response from agy
-    response = get_agy_response(message.from_user.id, user_text)
-    
-    send_long_message(message.chat.id, response)
+    def process():
+        status_msg = None
+        try:
+            status_msg = bot.send_message(
+                message.chat.id,
+                "⚡ *Runa sedang memproses permintaan kamu...* Mohon tunggu sebentar ya~ ✨",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+        stop_typing = False
+
+        def keep_typing():
+            while not stop_typing:
+                try:
+                    bot.send_chat_action(message.chat.id, 'typing')
+                except Exception:
+                    pass
+                time.sleep(3)
+
+        typing_thread = threading.Thread(target=keep_typing, daemon=True)
+        typing_thread.start()
+
+        try:
+            response = get_agy_response(message.from_user.id, user_text)
+        finally:
+            stop_typing = True
+
+        if status_msg:
+            try:
+                bot.delete_message(message.chat.id, status_msg.message_id)
+            except Exception:
+                pass
+
+        send_long_message(message.chat.id, response)
+
+    threading.Thread(target=process, daemon=True).start()
 
 if __name__ == '__main__':
     update_bot_commands()
-    logger.info("Runa Shirakawa Telegram Bot starting with multi-project support...")
-    bot.infinity_polling()
+    logger.info("Runa Shirakawa Telegram Bot starting with auto-reconnect resilience...")
+    while True:
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            logger.error(f"Polling connection error encountered: {e}. Reconnecting in 5 seconds...")
+            time.sleep(5)
