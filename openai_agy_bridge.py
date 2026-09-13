@@ -50,11 +50,12 @@ class ChatCompletionRequest(BaseModel):
 @app.get("/")
 def root():
     active_key = os.environ.get("AGY_BRIDGE_API_KEY") or DEFAULT_API_KEY
+    masked_key = f"{active_key[:7]}...{active_key[-4:]}" if len(active_key) > 11 else "[REDACTED]"
     return {
         "status": "online",
         "message": "AGY OpenAI-Compatible Bridge API Server is running!",
-        "api_key": active_key,
-        "instructions": f"Use Authorization header: 'Bearer {active_key}' in your OpenAI client / Lightsaber Benchmark UI."
+        "api_key": masked_key,
+        "instructions": "Use Authorization header: 'Bearer <YOUR_API_KEY>' in your OpenAI client / Lightsaber Benchmark UI."
     }
 
 @app.get("/v1/models")

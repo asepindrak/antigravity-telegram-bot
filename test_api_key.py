@@ -24,8 +24,16 @@ def test_valid_api_key():
     assert response.status_code == 200
     assert response.json()["object"] == "list"
 
+def test_root_endpoint_hides_api_key():
+    response = client.get("/")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["api_key"] != "sk-test-key-999"
+    assert "sk-test-key-999" not in data["instructions"]
+
 if __name__ == "__main__":
     test_missing_api_key()
     test_invalid_api_key()
     test_valid_api_key()
+    test_root_endpoint_hides_api_key()
     print("All API Key strict validation tests passed successfully!")
