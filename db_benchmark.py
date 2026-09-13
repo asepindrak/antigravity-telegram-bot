@@ -6,8 +6,8 @@ from typing import Dict, Any, Optional
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "localhost"),
     "user": os.environ.get("DB_USER", "root"),
-    "password": os.environ.get("DB_PASS", ""),
-    "database": os.environ.get("DB_NAME", "benchmark_db"),
+    "password": os.environ.get("DB_PASS", os.environ.get("DB_PASSWORD", "")),
+    "database": os.environ.get("DB_NAME", os.environ.get("DB_DATABASE", "benchmark_db")),
     "port": int(os.environ.get("DB_PORT", 3306)),
     "autocommit": True
 }
