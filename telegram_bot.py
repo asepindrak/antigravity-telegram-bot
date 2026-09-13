@@ -392,7 +392,8 @@ if __name__ == '__main__':
     logger.info("Runa Shirakawa Telegram Bot starting with auto-reconnect resilience...")
     while True:
         try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+            bot.polling(non_stop=True, interval=0, timeout=60, long_polling_timeout=60)
         except Exception as e:
-            logger.error(f"Polling connection error encountered: {e}. Reconnecting in 5 seconds...")
-            time.sleep(5)
+            logger.error(f"Polling error encountered: {e}. Reconnecting in 10 seconds...")
+            time.sleep(10)
+

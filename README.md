@@ -1,4 +1,4 @@
-﻿# 🌸 Learn with Runa - AI Companion & Assistant Setup
+# 🌸 Learn with Runa - AI Companion & Assistant Setup
 
 Repository ini berisi blueprint dan konfigurasi **Runa Shirakawa** (AI Companion & Coding Assistant) agar dapat diduplikasi dan dijalankan pada PC / komputer lain.
 
@@ -27,7 +27,15 @@ cd learn-with-runa
    - Path Windows: C:\Users\<USERNAME>\.gemini\antigravity-cli\
 3. Jalankan CLI Antigravity dengan instruksi persona Runa!
 
-### Langkah 3: Setup Telegram Bot (Opsional)
+### Langkah 3: Setup AGY OpenAI Bridge API Key (.env)
+1. Buat file `.env` di root folder `learn-with-runa` (atau gunakan template `.env`).
+2. Isi `AGY_BRIDGE_API_KEY` sesuai API key yang diinginkan:
+   ```env
+   AGY_BRIDGE_API_KEY=sk-agy-secret-key-12345
+   ```
+3. Jalankan bridge server menggunakan `./run_bridge.sh` atau `run_bridge.bat`. Bridge server akan menggunakan API Key dari `.env` dan menolak request dengan API Key yang salah (401 Unauthorized).
+
+### Langkah 4: Setup Telegram Bot (Opsional)
 Jika ingin menggunakan Runa via Telegram:
 1. Install Python 3.10+
 2. Install dependencies:
