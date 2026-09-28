@@ -43,9 +43,73 @@ class ChatMessage(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str = "agy-default"
     messages: List[ChatMessage]
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     temperature: Optional[float] = 0.7
     top_p: Optional[float] = 1.0
     stream: Optional[bool] = False
+
+def parse_tool_calls_from_response(response_text: str) -> Optional[List[Dict[str, Any]]]:
+    if not response_text:
+        return None
+    
+    text = response_text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 2:
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+            
+    if not (text.startswith("{") and text.endswith("}")):
+        return None
+        
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            if "tool_calls" in data and isinstance(data["tool_calls"], list):
+                tool_calls = []
+                for tc in data["tool_calls"]:
+                    tc_id = tc.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+                    fn = tc.get("function", {})
+                    fn_name = fn.get("name") or tc.get("name")
+                    fn_args = fn.get("arguments") or tc.get("arguments") or {}
+                    if isinstance(fn_args, dict):
+                        fn_args = json.dumps(fn_args)
+                    elif not isinstance(fn_args, str):
+                        fn_args = str(fn_args)
+                    
+                    if fn_name:
+                        tool_calls.append({
+                            "id": tc_id,
+                            "type": "function",
+                            "function": {
+                                "name": fn_name,
+                                "arguments": fn_args
+                            }
+                        })
+                return tool_calls if tool_calls else None
+            elif "name" in data and ("arguments" in data or "query" in data or "index" in data or "url" in data):
+                fn_name = data["name"]
+                fn_args = data.get("arguments")
+                if fn_args is None:
+                    fn_args = {k: v for k, v in data.items() if k != "name"}
+                if isinstance(fn_args, dict):
+                    fn_args = json.dumps(fn_args)
+                return [{
+                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                    "type": "function",
+                    "function": {
+                        "name": fn_name,
+                        "arguments": fn_args
+                    }
+                }]
+    except Exception:
+        pass
+        
+    return None
 
 @app.get("/")
 def root():
@@ -86,6 +150,28 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
         content_str = msg.content if isinstance(msg.content, str) else str(msg.content)
         full_prompt += f"{msg.role.upper()}: {content_str}\n"
 
+    if request.tools and request.tool_choice != "none":
+        tools_desc = json.dumps(request.tools, indent=2)
+        full_prompt += f"\n━━━━━━━━━━━━━━━━━━━━━━\n🛠️ AVAILABLE TOOLS / FUNCTIONS\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        full_prompt += f"You have access to the following tools:\n{tools_desc}\n\n"
+        full_prompt += f"Tool Choice Instruction: {request.tool_choice or 'auto'}\n"
+        full_prompt += (
+            "IMPORTANT: If you decide to call any tool, you MUST respond ONLY with a JSON object in this format:\n"
+            "{\n"
+            '  "tool_calls": [\n'
+            "    {\n"
+            '      "id": "call_123",\n'
+            '      "type": "function",\n'
+            '      "function": {\n'
+            '        "name": "<tool_name>",\n'
+            '        "arguments": "<JSON_STRING_OF_ARGUMENTS>"\n'
+            "      }\n"
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "IF NO tool call is needed, respond normally with standard message content.\n"
+        )
+
     # Invoke `agy -p` to process prompt via Antigravity CLI with retry logic
     max_retries = 3
     response_text = ""
@@ -118,6 +204,22 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
     t_tokens = p_tokens + c_tokens
     status = "completed" if not response_text.startswith("[") else "failed"
 
+    # Check for tool calls in response
+    tool_calls = parse_tool_calls_from_response(response_text)
+    if tool_calls:
+        finish_reason = "tool_calls"
+        message_dict = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": tool_calls
+        }
+    else:
+        finish_reason = "stop"
+        message_dict = {
+            "role": "assistant",
+            "content": response_text
+        }
+
     # Save to DB
     save_benchmark_result(
         test_id=f"req-{completion_id}",
@@ -135,6 +237,12 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
     if request.stream:
         from fastapi.responses import StreamingResponse
         def stream_generator():
+            delta_dict = {"role": "assistant"}
+            if tool_calls:
+                delta_dict["tool_calls"] = tool_calls
+            else:
+                delta_dict["content"] = response_text
+
             chunk_data = {
                 "id": completion_id,
                 "object": "chat.completion.chunk",
@@ -142,8 +250,8 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
                 "model": request.model,
                 "choices": [{
                     "index": 0,
-                    "delta": {"role": "assistant", "content": response_text},
-                    "finish_reason": "stop"
+                    "delta": delta_dict,
+                    "finish_reason": finish_reason
                 }]
             }
             yield f"data: {json.dumps(chunk_data)}\n\n"
@@ -159,11 +267,8 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
         "choices": [
             {
                 "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": response_text
-                },
-                "finish_reason": "stop"
+                "message": message_dict,
+                "finish_reason": finish_reason
             }
         ],
         "usage": {

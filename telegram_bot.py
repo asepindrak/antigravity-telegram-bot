@@ -5,6 +5,8 @@ import subprocess
 import logging
 import threading
 import time
+import re
+import urllib.parse
 import telebot
 from telebot import types
 
@@ -112,6 +114,23 @@ def send_long_message(chat_id: int, text: str, reply_markup=None):
                 bot.send_message(chat_id, chunk, reply_markup=markup)
             except Exception as e:
                 logger.error(f"Error sending chunk: {e}")
+
+def extract_and_send_files(chat_id: int, text: str):
+    """Detects file:/// paths in markdown text and sends them as Telegram document attachments."""
+    file_matches = re.findall(r'file:///([^\s\)\>]+)', text)
+    sent_paths = set()
+    for raw_path in file_matches:
+        decoded_path = urllib.parse.unquote(raw_path)
+        clean_path = os.path.normpath(decoded_path)
+        if os.path.isfile(clean_path) and clean_path not in sent_paths:
+            sent_paths.add(clean_path)
+            try:
+                filename = os.path.basename(clean_path)
+                with open(clean_path, 'rb') as f:
+                    bot.send_document(chat_id, f, caption=f"📄 {filename}")
+                logger.info(f"Successfully sent file attachment: {clean_path}")
+            except Exception as e:
+                logger.error(f"Failed to send file attachment {clean_path}: {e}")
 
 def get_agy_response(user_id: int, user_text: str) -> str:
     curr_project = user_active_project.get(user_id, "learn-with-runa")
@@ -384,6 +403,7 @@ def handle_message(message):
                 pass
 
         send_long_message(message.chat.id, response)
+        extract_and_send_files(message.chat.id, response)
 
     threading.Thread(target=process, daemon=True).start()
 
