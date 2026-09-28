@@ -211,11 +211,11 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
 
     # Invoke `agy -p` to process prompt via Antigravity CLI
     max_retries = int(os.environ.get("AGY_MAX_RETRIES", "1"))
-    default_model = os.environ.get("AGY_DEFAULT_MODEL", "gemini-3.6-flash-low")
-    default_effort = os.environ.get("AGY_EFFORT", "low")
+    default_model = os.environ.get("AGY_DEFAULT_MODEL", "flash")
+    default_effort = os.environ.get("AGY_EFFORT", "")
 
     # Select model
-    target_model = request.model if (request.model and request.model not in ("agy-default", "gpt-4o")) else default_model
+    target_model = request.model if (request.model and request.model not in ("agy-default", "gpt-4o", "gpt-4o-mini", "gpt-4o-mini-2024-07-18")) else default_model
 
     response_text = ""
     for attempt in range(1, max_retries + 1):
@@ -235,13 +235,26 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
                 timeout=120
             )
             out_text = result.stdout.strip()
-            if out_text and not out_text.startswith("["):
-                response_text = out_text
+            
+            # Clean markdown codeblock wrapper if any
+            cleaned_text = out_text
+            if cleaned_text.startswith("```"):
+                lines = cleaned_text.splitlines()
+                if len(lines) >= 2:
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    cleaned_text = "\n".join(lines).strip()
+
+            is_err = cleaned_text.startswith("[AGY CLI Error]") or cleaned_text.startswith("[Server Exception") or cleaned_text.startswith("Error:")
+            if cleaned_text and not is_err:
+                response_text = cleaned_text
                 break
             elif attempt < max_retries:
                 continue
             else:
-                response_text = out_text or (f"[AGY CLI Error]: {result.stderr.strip()}" if result.stderr else "No output returned from AGY CLI.")
+                response_text = cleaned_text or (f"[AGY CLI Error]: {result.stderr.strip()}" if result.stderr else "No output returned from AGY CLI.")
         except Exception as e:
             if attempt == max_retries:
                 response_text = f"[Server Exception executing AGY CLI]: {str(e)}"
@@ -366,8 +379,8 @@ async def websocket_endpoint(websocket: WebSocket):
             
             # Process via agy CLI
             max_retries = int(os.environ.get("AGY_MAX_RETRIES", "1"))
-            default_model = os.environ.get("AGY_DEFAULT_MODEL", "gemini-3.6-flash-low")
-            default_effort = os.environ.get("AGY_EFFORT", "low")
+            default_model = os.environ.get("AGY_DEFAULT_MODEL", "flash")
+            default_effort = os.environ.get("AGY_EFFORT", "")
 
             res_text = ""
             status = "failed"
@@ -388,14 +401,24 @@ async def websocket_endpoint(websocket: WebSocket):
                         timeout=120
                     )
                     out_text = result.stdout.strip()
-                    if out_text and not out_text.startswith("Error"):
-                        res_text = out_text
+                    cleaned_text = out_text
+                    if cleaned_text.startswith("```"):
+                        lines = cleaned_text.splitlines()
+                        if len(lines) >= 2:
+                            if lines[0].startswith("```"):
+                                lines = lines[1:]
+                            if lines and lines[-1].startswith("```"):
+                                lines = lines[:-1]
+                            cleaned_text = "\n".join(lines).strip()
+
+                    if cleaned_text and not cleaned_text.startswith("Error:"):
+                        res_text = cleaned_text
                         status = "completed"
                         break
                     elif attempt < max_retries:
                         continue
                     else:
-                        res_text = out_text or result.stderr.strip() or "Failed after retries"
+                        res_text = cleaned_text or result.stderr.strip() or "Failed after retries"
                         status = "failed"
                 except Exception as ex:
                     if attempt == max_retries:
