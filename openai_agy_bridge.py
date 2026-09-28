@@ -184,12 +184,23 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
             "IF NO tool call is needed, respond normally with standard message content.\n"
         )
 
-    # Invoke `agy -p` to process prompt via Antigravity CLI with retry logic
-    max_retries = 3
+    # Invoke `agy -p` to process prompt via Antigravity CLI
+    max_retries = int(os.environ.get("AGY_MAX_RETRIES", "1"))
+    default_model = os.environ.get("AGY_DEFAULT_MODEL", "gemini-3.6-flash-low")
+    default_effort = os.environ.get("AGY_EFFORT", "low")
+
+    # Select model
+    target_model = request.model if (request.model and request.model not in ("agy-default", "gpt-4o")) else default_model
+
     response_text = ""
     for attempt in range(1, max_retries + 1):
         try:
             cmd = ["agy", "-p", full_prompt, "--dangerously-skip-permissions"]
+            if target_model:
+                cmd.extend(["--model", target_model])
+            if default_effort:
+                cmd.extend(["--effort", default_effort])
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -306,13 +317,21 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception:
                 prompt = data
             
-            # Process via agy CLI with auto-retry logic (max 3 attempts)
-            max_retries = 3
+            # Process via agy CLI
+            max_retries = int(os.environ.get("AGY_MAX_RETRIES", "1"))
+            default_model = os.environ.get("AGY_DEFAULT_MODEL", "gemini-3.6-flash-low")
+            default_effort = os.environ.get("AGY_EFFORT", "low")
+
             res_text = ""
             status = "failed"
             for attempt in range(1, max_retries + 1):
                 try:
                     cmd = ["agy", "-p", str(prompt), "--dangerously-skip-permissions"]
+                    if default_model:
+                        cmd.extend(["--model", default_model])
+                    if default_effort:
+                        cmd.extend(["--effort", default_effort])
+
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
