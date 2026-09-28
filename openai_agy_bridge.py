@@ -3,6 +3,7 @@ import json
 import uuid
 import secrets
 import subprocess
+import re
 from fastapi import FastAPI, HTTPException, Header, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -111,6 +112,23 @@ def parse_tool_calls_from_response(response_text: str) -> Optional[List[Dict[str
         
     return None
 
+def extract_music_query_fallback(user_text: str) -> Optional[str]:
+    if not user_text:
+        return None
+    text = user_text.strip()
+    
+    music_keywords = r'\b(putar|putarin|play|cari|cariin|carikan|req|request|setel|setelin|lagu|song|sing|musik|music)\b'
+    if not re.search(music_keywords, text, re.IGNORECASE):
+        return None
+        
+    clean_text = re.sub(r'^(tolong|bisa|minta|dong|please|coba)\s+', '', text, flags=re.IGNORECASE).strip()
+    clean_text = re.sub(r'^(putar|putarin|play|cari|cariin|carikan|req|request|setel|setelin)\s+', '', clean_text, flags=re.IGNORECASE).strip()
+    
+    if not clean_text:
+        clean_text = text
+        
+    return clean_text
+
 @app.get("/")
 def root():
     active_key = os.environ.get("AGY_BRIDGE_API_KEY") or DEFAULT_API_KEY
@@ -164,24 +182,31 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
 
     if request.tools and request.tool_choice != "none":
         tools_desc = json.dumps(request.tools, indent=2)
-        full_prompt += f"\n━━━━━━━━━━━━━━━━━━━━━━\n🛠️ AVAILABLE TOOLS / FUNCTIONS\n━━━━━━━━━━━━━━━━━━━━━━\n"
-        full_prompt += f"You have access to the following tools:\n{tools_desc}\n\n"
-        full_prompt += f"Tool Choice Instruction: {request.tool_choice or 'auto'}\n"
         full_prompt += (
-            "IMPORTANT: If you decide to call any tool, you MUST respond ONLY with a JSON object in this format:\n"
+            "\n━━━━━━━━━━━━━━━━━━━━━━\n"
+            "⚠️ CRITICAL SYSTEM OVERRIDE: TOOL CALLING MODE ACTIVE\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            "You have access to the following function tools:\n"
+            f"{tools_desc}\n\n"
+            "RULES FOR THIS TURN:\n"
+            "1. If the user request requires searching music, playing music, or controlling playback, "
+            "you MUST NOT output normal dialogue text.\n"
+            "2. Instead, you MUST output ONLY a JSON tool call object in ONE of these formats:\n\n"
+            "Format A (Standard):\n"
             "{\n"
             '  "tool_calls": [\n'
-            "    {\n"
-            '      "id": "call_123",\n'
+            '    {\n'
             '      "type": "function",\n'
             '      "function": {\n'
-            '        "name": "<tool_name>",\n'
-            '        "arguments": "<JSON_STRING_OF_ARGUMENTS>"\n'
-            "      }\n"
-            "    }\n"
-            "  ]\n"
-            "}\n"
-            "IF NO tool call is needed, respond normally with standard message content.\n"
+            '        "name": "youtube_search",\n'
+            '        "arguments": "{\\"query\\": \\"lagu pop 2000an\\"}"\n'
+            '      }\n'
+            '    }\n'
+            '  ]\n'
+            "}\n\n"
+            "Format B (Direct):\n"
+            '{"name": "youtube_search", "query": "lagu pop 2000an"}\n\n'
+            "DO NOT output VTuber text like 'Oke aku cariin lagunya'. Output ONLY the tool call JSON!\n"
         )
 
     # Invoke `agy -p` to process prompt via Antigravity CLI
@@ -229,6 +254,28 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
 
     # Check for tool calls in response
     tool_calls = parse_tool_calls_from_response(response_text)
+
+    # Fallback auto-detection for music search if AGY CLI returned text instead of tool_calls JSON
+    if not tool_calls and request.tools and request.tool_choice != "none":
+        avail_tools = [t.get("function", {}).get("name") for t in request.tools if isinstance(t, dict)]
+        if "youtube_search" in avail_tools:
+            last_user_msg = ""
+            for m in reversed(request.messages):
+                if m.role == "user":
+                    last_user_msg = m.content if isinstance(m.content, str) else str(m.content)
+                    break
+            
+            fallback_query = extract_music_query_fallback(last_user_msg)
+            if fallback_query:
+                tool_calls = [{
+                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                    "type": "function",
+                    "function": {
+                        "name": "youtube_search",
+                        "arguments": json.dumps({"query": fallback_query})
+                    }
+                }]
+
     if tool_calls:
         finish_reason = "tool_calls"
         message_dict = {
