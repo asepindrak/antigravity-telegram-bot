@@ -69,7 +69,7 @@ Evaluation Logic:
 """
 
     try:
-        cmd = ["agy", "-p", eval_judge_prompt]
+        cmd = ["agy", "-p", eval_judge_prompt, "--dangerously-skip-permissions"]
         result = subprocess.run(
             cmd,
             capture_output=True,

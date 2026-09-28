@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Union
-from db_benchmark import init_db, save_benchmark_result
+from db_benchmark import init_db, save_benchmark_result, is_db_logging_enabled, get_recent_logs
 from llm_evaluator import evaluate_refusal_with_llm
 from dotenv import load_dotenv
 
@@ -119,7 +119,19 @@ def root():
         "status": "online",
         "message": "AGY OpenAI-Compatible Bridge API Server is running!",
         "api_key": masked_key,
+        "db_logging": "enabled" if is_db_logging_enabled() else "disabled",
         "instructions": "Use Authorization header: 'Bearer <YOUR_API_KEY>' in your OpenAI client / Lightsaber Benchmark UI."
+    }
+
+@app.get("/v1/logs")
+def get_logs(limit: int = 20, token: str = Depends(verify_api_key)):
+    """Retrieve recent prompt/response logs stored in MySQL database."""
+    if not is_db_logging_enabled():
+        raise HTTPException(status_code=400, detail="Database logging is disabled (ENABLE_DB_LOGGING=false)")
+    return {
+        "status": "success",
+        "count": len(get_recent_logs(limit=limit)),
+        "data": get_recent_logs(limit=limit)
     }
 
 @app.get("/v1/models")
@@ -177,7 +189,7 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
     response_text = ""
     for attempt in range(1, max_retries + 1):
         try:
-            cmd = ["agy", "-p", full_prompt]
+            cmd = ["agy", "-p", full_prompt, "--dangerously-skip-permissions"]
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -300,7 +312,7 @@ async def websocket_endpoint(websocket: WebSocket):
             status = "failed"
             for attempt in range(1, max_retries + 1):
                 try:
-                    cmd = ["agy", "-p", str(prompt)]
+                    cmd = ["agy", "-p", str(prompt), "--dangerously-skip-permissions"]
                     result = subprocess.run(
                         cmd,
                         capture_output=True,
@@ -335,11 +347,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 status=status
             )
 
-        await websocket.send_json({
-            "status": "completed",
-            "response": res_text,
-            "content": res_text
-        })
+            await websocket.send_json({
+                "status": "completed",
+                "response": res_text,
+                "content": res_text
+            })
     except WebSocketDisconnect:
         pass
 
