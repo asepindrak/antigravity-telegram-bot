@@ -172,8 +172,52 @@ def list_models(token: str = Depends(verify_api_key)):
         ]
     }
 
+def run_agy_cli(full_prompt: str, target_model: str, default_effort: str) -> str:
+    max_retries = int(os.environ.get("AGY_MAX_RETRIES", "1"))
+    response_text = ""
+    for attempt in range(1, max_retries + 1):
+        try:
+            cmd = ["agy", "-p", full_prompt, "--dangerously-skip-permissions"]
+            if target_model:
+                cmd.extend(["--model", target_model])
+            if default_effort:
+                cmd.extend(["--effort", default_effort])
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=180
+            )
+            out_text = result.stdout.strip()
+            
+            cleaned_text = out_text
+            if cleaned_text.startswith("```"):
+                lines = cleaned_text.splitlines()
+                if len(lines) >= 2:
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    cleaned_text = "\n".join(lines).strip()
+
+            is_err = cleaned_text.startswith("[AGY CLI Error]") or cleaned_text.startswith("[Server Exception") or cleaned_text.startswith("Error:")
+            if cleaned_text and not is_err:
+                response_text = cleaned_text
+                break
+            elif attempt < max_retries:
+                continue
+            else:
+                response_text = cleaned_text or (f"[AGY CLI Error]: {result.stderr.strip()}" if result.stderr else "No output returned from AGY CLI.")
+        except Exception as e:
+            if attempt == max_retries:
+                response_text = f"[Server Exception executing AGY CLI]: {str(e)}"
+    return response_text
+
 @app.post("/v1/chat/completions")
-def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify_api_key)):
+async def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify_api_key)):
     # Extract last user message or prompt history
     full_prompt = ""
     for msg in request.messages:
@@ -209,55 +253,95 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
             "DO NOT output VTuber text like 'Oke aku cariin lagunya'. Output ONLY the tool call JSON!\n"
         )
 
-    # Invoke `agy -p` to process prompt via Antigravity CLI
-    max_retries = int(os.environ.get("AGY_MAX_RETRIES", "1"))
     default_model = os.environ.get("AGY_DEFAULT_MODEL", "flash")
     default_effort = os.environ.get("AGY_EFFORT", "")
-
-    # Select model
     target_model = request.model if (request.model and request.model not in ("agy-default", "gpt-4o", "gpt-4o-mini", "gpt-4o-mini-2024-07-18")) else default_model
 
-    response_text = ""
-    for attempt in range(1, max_retries + 1):
-        try:
-            cmd = ["agy", "-p", full_prompt, "--dangerously-skip-permissions"]
-            if target_model:
-                cmd.extend(["--model", target_model])
-            if default_effort:
-                cmd.extend(["--effort", default_effort])
+    if request.stream:
+        from fastapi.responses import StreamingResponse
+        import asyncio
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=120
-            )
-            out_text = result.stdout.strip()
-            
-            # Clean markdown codeblock wrapper if any
-            cleaned_text = out_text
-            if cleaned_text.startswith("```"):
-                lines = cleaned_text.splitlines()
-                if len(lines) >= 2:
-                    if lines[0].startswith("```"):
-                        lines = lines[1:]
-                    if lines and lines[-1].startswith("```"):
-                        lines = lines[:-1]
-                    cleaned_text = "\n".join(lines).strip()
+        async def stream_generator():
+            # Send immediate heartbeat line so HTTP socket opens instantly
+            yield ": keep-alive\n\n"
 
-            is_err = cleaned_text.startswith("[AGY CLI Error]") or cleaned_text.startswith("[Server Exception") or cleaned_text.startswith("Error:")
-            if cleaned_text and not is_err:
-                response_text = cleaned_text
-                break
-            elif attempt < max_retries:
-                continue
+            # Execute agy CLI in background thread without blocking event loop
+            task = asyncio.create_task(asyncio.to_thread(run_agy_cli, full_prompt, target_model, default_effort))
+
+            # Send heartbeat pings every 2s while waiting for agy CLI to complete
+            while not task.done():
+                yield ": keep-alive\n\n"
+                await asyncio.sleep(2)
+
+            response_text = await task
+
+            completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+            p_tokens = len(full_prompt) // 4
+            c_tokens = len(response_text) // 4
+            t_tokens = p_tokens + c_tokens
+            status = "completed" if not response_text.startswith("[") else "failed"
+
+            # Check for tool calls in response
+            tool_calls = parse_tool_calls_from_response(response_text)
+            if not tool_calls and request.tools and request.tool_choice != "none":
+                avail_tools = [t.get("function", {}).get("name") for t in request.tools if isinstance(t, dict)]
+                if "youtube_search" in avail_tools:
+                    last_user_msg = ""
+                    for m in reversed(request.messages):
+                        if m.role == "user":
+                            last_user_msg = m.content if isinstance(m.content, str) else str(m.content)
+                            break
+                    fallback_query = extract_music_query_fallback(last_user_msg)
+                    if fallback_query:
+                        tool_calls = [{
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "function",
+                            "function": {
+                                "name": "youtube_search",
+                                "arguments": json.dumps({"query": fallback_query})
+                            }
+                        }]
+
+            if tool_calls:
+                finish_reason = "tool_calls"
+                delta_dict = {"role": "assistant", "content": None, "tool_calls": tool_calls}
             else:
-                response_text = cleaned_text or (f"[AGY CLI Error]: {result.stderr.strip()}" if result.stderr else "No output returned from AGY CLI.")
-        except Exception as e:
-            if attempt == max_retries:
-                response_text = f"[Server Exception executing AGY CLI]: {str(e)}"
+                finish_reason = "stop"
+                delta_dict = {"role": "assistant", "content": response_text}
+
+            # Save to DB
+            save_benchmark_result(
+                test_id=f"req-{completion_id}",
+                client_ip="http-client",
+                model_name=request.model,
+                request_type="http",
+                prompt=full_prompt,
+                response=response_text,
+                status=status,
+                prompt_tokens=p_tokens,
+                completion_tokens=c_tokens,
+                total_tokens=t_tokens
+            )
+
+            chunk_data = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": 1700000000,
+                "model": request.model,
+                "choices": [{
+                    "index": 0,
+                    "delta": delta_dict,
+                    "finish_reason": finish_reason
+                }]
+            }
+            yield f"data: {json.dumps(chunk_data)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+    # Non-streaming async execution
+    import asyncio
+    response_text = await asyncio.to_thread(run_agy_cli, full_prompt, target_model, default_effort)
 
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     p_tokens = len(full_prompt) // 4
@@ -267,8 +351,6 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
 
     # Check for tool calls in response
     tool_calls = parse_tool_calls_from_response(response_text)
-
-    # Fallback auto-detection for music search if AGY CLI returned text instead of tool_calls JSON
     if not tool_calls and request.tools and request.tool_choice != "none":
         avail_tools = [t.get("function", {}).get("name") for t in request.tools if isinstance(t, dict)]
         if "youtube_search" in avail_tools:
@@ -277,7 +359,6 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
                 if m.role == "user":
                     last_user_msg = m.content if isinstance(m.content, str) else str(m.content)
                     break
-            
             fallback_query = extract_music_query_fallback(last_user_msg)
             if fallback_query:
                 tool_calls = [{
@@ -316,31 +397,6 @@ def chat_completions(request: ChatCompletionRequest, token: str = Depends(verify
         completion_tokens=c_tokens,
         total_tokens=t_tokens
     )
-
-    if request.stream:
-        from fastapi.responses import StreamingResponse
-        def stream_generator():
-            delta_dict = {"role": "assistant"}
-            if tool_calls:
-                delta_dict["tool_calls"] = tool_calls
-            else:
-                delta_dict["content"] = response_text
-
-            chunk_data = {
-                "id": completion_id,
-                "object": "chat.completion.chunk",
-                "created": 1700000000,
-                "model": request.model,
-                "choices": [{
-                    "index": 0,
-                    "delta": delta_dict,
-                    "finish_reason": finish_reason
-                }]
-            }
-            yield f"data: {json.dumps(chunk_data)}\n\n"
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(stream_generator(), media_type="text/event-stream")
 
     return {
         "id": completion_id,
