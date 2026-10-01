@@ -1,13 +1,13 @@
 ﻿Category,Component Name,Price (IDR),Notes / Compatibility
-CPU,AMD Ryzen 5 5500,1600000,"6 Cores 12 Threads, Socket AM4, PCIe 3.0"
+CPU,AMD Ryzen 5 5600,2139000,"6 Cores 12 Threads, Socket AM4, PCIe 4.0"
 GPU,NVIDIA GTX 1050 Ti,0,Pake yang sudah ada dulu (Temporary)
-Motherboard,Asrock B450M Steel Legend AM4 RGB,1562000,"Socket AM4, Micro-ATX, RGB & VRM mantap"
-RAM,KINGBANK SOARBLADE RGB WHITE 2x16GB (32GB) 3600MHz CL18,3600000,"Dual Channel 32GB Kit, DDR4 3600MHz, White RGB"
-Storage (SSD/HDD),TEAM SSD NVME GEN3 MP33 512GB M.2 2280,1500000,"NVMe PCIe 3.0 x4, Speed up to 1800 MB/s, Garansi 5 Thn"
-Power Supply (PSU),Cooler Master MWE 650 V3 - 650W 80+ BRONZE,700000,"80+ Bronze efficiency, mantap buat build mid-range"
-Case,Tecware VX Trinity M2 M-ATX TG Case White (3x ARGB Fans),470000,"M-ATX, Tempered Glass, Inc. 3x ARGB Fans White, cocok sama tema White & ARGB"
-Cooler,COOLMOON AOSOR CPU COOLER T6 DIGITAL 12CM ARGB 6 PIPE White,300000,"White Air Cooler, 6 Heatpipes, ARGB & Digital Display"
-Monitor,ASRock CL27FFB 27 Inch IPS FHD 144Hz 99% sRGB,1600000,"27"" IPS, FHD (1080p), 144Hz, 99% sRGB"
-Network / Wi-Fi,TP-LINK TL-WN881ND Wireless N PCI Express,150000,"PCIe Wi-Fi Card 300Mbps, 2x Antena 2dBi"
-Accessories / Extra,MM-Cyclone Fan ARGB 12cm (3 pcs),118000,Fan tambahan ARGB 3pcs
-Total Estimated Price,,11600000,
+Motherboard,Asrock B550M PRO SE AMD AM4 DDR4 WHITE,1667000,"Socket AM4, Micro-ATX"
+RAM,KINGBANK SOARBLADE RGB WHITE 2x16GB (32GB) 3600MHz CL18,3860000,"Dual Channel 32GB Kit, DDR4 3600MHz, White RGB"
+Storage (SSD/HDD),SSD NVME 512GB PCIe Gen4x4 SENTINEL 100%/100% (POT 0 Day) Like New,1100000,"NVMe PCIe Gen4x4 512GB, Health 100%/100% Sentinel (POT 0 Day), Like New"
+Power Supply (PSU),Cooler Master MWE 650 V3 - 650W 80+ BRONZE,795000,"80+ Bronze efficiency, mantap buat build mid-range"
+Case,Tecware VX Trinity M2 M-ATX TG Case White (3x ARGB Fans),535000,"M-ATX, Tempered Glass, Inc. 3x ARGB Fans White, cocok sama tema White & ARGB"
+Cooler,COOLMOON AOSOR CPU COOLER T6 DIGITAL 12CM ARGB 6 PIPE White,323000,"White Air Cooler, 6 Heatpipes, ARGB & Digital Display"
+Monitor,ASRock CL27FFB 27 Inch IPS FHD 144Hz 99% sRGB,1700000,"27"" IPS, FHD (1080p), 144Hz, 99% sRGB"
+Network / Wi-Fi,PCIE Wifi Dual Band Bluetooth Qualcomm Atheros Wireless Network Card,199000,PCIe Wi-Fi Dual Band 2.4G/5G + Bluetooth (Qualcomm Atheros)
+Accessories / Extra,MM-Cyclone Fan ARGB 12cm (3 pcs),125000,Fan tambahan ARGB 3pcs
+Total Estimated Price,,=SUM(D5:D15),
