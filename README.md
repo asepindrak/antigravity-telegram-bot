@@ -1,49 +1,167 @@
-# 🌸 Learn with Runa - AI Companion & Assistant Setup
+# 🤖 Antigravity Telegram Bot
 
-Repository ini berisi blueprint dan konfigurasi **Runa Shirakawa** (AI Companion & Coding Assistant) agar dapat diduplikasi dan dijalankan pada PC / komputer lain.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue)](#)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-brightgreen)](#)
+[![Engine](https://img.shields.io/badge/Engine-Google%20Antigravity%20CLI%20(agy)-orange)](#)
 
----
+A powerful, remote, multiplatform AI coding assistant & companion accessible directly through **Telegram**, powered by **Google Antigravity CLI (`agy`)** and featuring an OpenAI-compatible Bridge Server.
 
-## 🚀 Fitur & Komponen Runa
-
-1. **persona.md**: Definisi identitas, karakter, gaya bahasa (Romaji), dan behavioral rules Runa Shirakawa.
-2. **	elegram_bot.py**: Telegram Bot script jika ingin menghubungkan Runa ke Telegram.
-3. **start_bot.bat & start_runa_bot.vbs**: Script launcher otomatis untuk Windows.
-4. **projects.json**: Tracking registry project yang sedang dikerjakan.
+Includes **1-line automated installation**, **zero-credential security for public repos**, **switchable AI personas** (Runa Shirakawa, Senior Engineer, JARVIS), **workspace isolation**, and **automatic startup on boot**.
 
 ---
 
-## 🛠️ Cara Duplikasi Runa di PC Lain
+## ⚡ 1-Line Installation
 
-### Langkah 1: Clone Repository Ini
-`ash
-git clone <URL_REPOSITORY_GITHUB_KAMU>
-cd learn-with-runa
-`
+Install and run everything automatically with a single command:
 
-### Langkah 2: Antigravity CLI Custom Persona Setup
-1. Pastikan **Antigravity CLI** (gy) sudah terinstall di PC baru.
-2. Copy atau daftarkan persona.md ke folder kustomisasi Antigravity CLI / agent prompt di PC baru:
-   - Path Windows: C:\Users\<USERNAME>\.gemini\antigravity-cli\
-3. Jalankan CLI Antigravity dengan instruksi persona Runa!
+### 🐧 Linux & 🍎 macOS (Bash)
+```bash
+curl -fsSL https://raw.githubusercontent.com/asepindrak/antigravity-telegram-bot/main/install.sh | bash
+```
+*(If your repo is still named `learn-with-runa`, replace the URL path with `learn-with-runa`)*
 
-### Langkah 3: Setup AGY OpenAI Bridge API Key (.env)
-1. Buat file `.env` di root folder `learn-with-runa` (atau gunakan template `.env`).
-2. Isi `AGY_BRIDGE_API_KEY` sesuai API key yang diinginkan:
-   ```env
-   AGY_BRIDGE_API_KEY=sk-agy-secret-key-12345
+### 🪟 Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/asepindrak/antigravity-telegram-bot/main/install.ps1 | iex
+```
+
+### ✨ What the Installer Does Automatically:
+1. Detects Python, Git, and Antigravity CLI (`agy`).
+2. Clones the repository to `~/.antigravity-telegram-bot`.
+3. Installs all required Python dependencies into a dedicated environment.
+4. Guides you through an interactive setup (Telegram Token, User ID, and Persona selection).
+5. Configures **Auto-Start on Boot** (Windows Startup Folder, Linux systemd, or macOS LaunchAgent).
+6. Starts the services in the background immediately!
+
+---
+
+## 🔒 Security & Public Repo Cleanliness
+
+This repository is **100% clean for public open-source distribution**:
+- **Zero hardcoded credentials**: Tokens, user IDs, and secret keys are never committed.
+- **Ignored in `.gitignore`**:
+  - `.env` (your bot token & allowed user IDs)
+  - `projects.json` (your registered local paths and directories)
+  - `logs/` and runtime files
+- **Every new installation starts clean**: Each machine creates its own fresh `.env` and default workspace without leaking any developer paths or accounts.
+
+---
+
+## ⚙️ Interactive Setup & CLI Configuration
+
+If you skipped configuration during installation, or want to modify your settings anytime, launch the built-in configuration tool:
+
+### Windows:
+```cmd
+setup.bat
+# or: python setup.py
+```
+
+### Linux & macOS:
+```bash
+./setup.sh
+# or: python3 setup.py
+```
+
+### CLI Menu Options:
+```text
+============================================================
+       🤖 ANTIGRAVITY TELEGRAM BOT - SETUP WIZARD
+============================================================
+ • Telegram Bot Token : 8909...S68 ✓
+ • Allowed User ID    : 6402709138
+ • Active Persona     : Runa Shirakawa
+ • Antigravity CLI    : Installed ✓
+ • Auto-Start on Boot : Enabled (Windows Startup Folder)
+============================================================
+ 1) 🔑 Set Telegram Bot Token
+ 2) 👤 Set Telegram Allowed User ID(s)
+ 3) 🎭 Change Persona (Runa, Senior Engineer, Jarvis, Custom)
+ 4) 📁 Manage Workspace Projects
+ 5) 🚀 Toggle Auto-Start at Boot (Enable / Disable)
+ 6) 🧪 Test Telegram Bot Connection
+ 7) 🔄 Restart All Services (Bridge + Bot)
+ 8) ⏹️ Stop All Services
+ 9) 🚪 Exit
+============================================================
+```
+
+### Non-Interactive / Scripted Setup Flags:
+```bash
+python setup.py --token "YOUR_BOT_TOKEN" --user-id "YOUR_TELEGRAM_ID" --persona runa --autostart enable
+```
+
+---
+
+## 🎭 AI Personas
+
+Switch between distinct personalities or define your own custom persona:
+
+| Persona | Style | Best For |
+| :--- | :--- | :--- |
+| **Runa Shirakawa** | Warm, friendly, supportive, playful Romaji (*"Hehe~"*, *"Yokatta!"*) | Daily companion, relaxed coding, English & Indonesian chat |
+| **Antigravity Engineer** | Direct, pragmatic, architecture-focused, concise | Serious software development, code reviews, bug fixing |
+| **JARVIS AI** | Sophisticated, witty, high-tech command center operative | Tech automation, server monitoring, cybernetic assistance |
+| **Custom** | Fully customizable in `persona.md` | Tailor your own prompt, style, and rules |
+
+---
+
+## 📱 Telegram Bot Commands
+
+Once your bot is running, message it on Telegram with these commands:
+
+| Command | Description |
+| :--- | :--- |
+| `/start` | Display welcome banner with active workspace and persona |
+| `/projects` | Interactive button menu to switch active coding projects |
+| `/spawn <name>` | Create or switch to a new project folder (e.g., `/spawn my-web-app`) |
+| `/general` | Switch to general conversation mode without project isolation |
+| `/persona` | View currently active persona and system instructions |
+| `/status` | Check running status, workspace path, and connected CLI engine |
+| `/reset` | Clear recent conversation history for the active project |
+
+---
+
+## 🛠️ Service Management
+
+### 🪟 Windows:
+| Action | Batch Script | PowerShell Script |
+| :--- | :--- | :--- |
+| **Start** | `start_services.bat` | *(Silent: `start_services_silent.vbs`)* |
+| **Stop** | `stop_services.bat` | `stop_services.ps1` |
+| **Status** | `status_services.bat` | `status_services.ps1` |
+| **Restart** | `restart_bridge.bat` | `restart_bridge.ps1` |
+| **Enable Auto-Start** | `enable_autostart.bat` | `enable_autostart.ps1` |
+| **Disable Auto-Start** | `disable_autostart.bat` | `disable_autostart.ps1` |
+
+### 🐧 Linux & 🍎 macOS:
+| Action | Shell Command |
+| :--- | :--- |
+| **Start** | `./start_services.sh` |
+| **Stop** | `./stop_services.sh` |
+| **Status** | `./status_services.sh` |
+| **Restart** | `./restart_services.sh` |
+| **Enable Auto-Start** | `./enable_autostart.sh` |
+| **Disable Auto-Start** | `./disable_autostart.sh` |
+
+---
+
+## 📋 Prerequisites
+
+1. **Python 3.8+**
+2. **Git**
+3. **Google Antigravity CLI (`agy`)**:
+   ```bash
+   curl -fsSL https://antigravity.google/cli/install.sh | bash
    ```
-3. Jalankan bridge server menggunakan `./run_bridge.sh` atau `run_bridge.bat`. Bridge server akan menggunakan API Key dari `.env` dan menolak request dengan API Key yang salah (401 Unauthorized).
-
-### Langkah 4: Setup Telegram Bot (Opsional)
-Jika ingin menggunakan Runa via Telegram:
-1. Install Python 3.10+
-2. Install dependencies:
-   `ash
-   pip install python-telegram-bot requests
-   `
-3. Atur API Token Telegram kamu dan jalankan start_bot.bat.
+4. **Telegram Bot Token**:
+   - Create a bot with [@BotFather](https://t.me/BotFather) on Telegram and copy the API token.
+5. **Telegram User ID**:
+   - Send `/start` to [@userinfobot](https://t.me/userinfobot) to get your numeric user ID.
 
 ---
 
-✨ *Ganbatte!* Sekarang Runa siap menemani kamu di PC mana saja! 💕
+## 📄 License
+
+This project is open-source under the [MIT License](LICENSE).

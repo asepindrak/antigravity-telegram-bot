@@ -517,9 +517,10 @@ def on_startup():
 
 if __name__ == "__main__":
     import uvicorn
+    bridge_host = os.environ.get("AGY_BRIDGE_HOST", "0.0.0.0")
+    bridge_port = int(os.environ.get("AGY_BRIDGE_PORT", 8001))
     print("=" * 60)
     print(f"YOUR OPENAI API KEY: {DEFAULT_API_KEY}")
-    print(f"(Note: You can also use any API key starting with 'sk-' or set AGY_BRIDGE_API_KEY env var)")
-    print(f"BASE URL FOR OPENAI CLIENT: http://localhost:8001/v1 (or http://127.0.0.1:8001/v1)")
+    print(f"BASE URL FOR OPENAI CLIENT: http://localhost:{bridge_port}/v1 (or http://127.0.0.1:{bridge_port}/v1)")
     print("=" * 60)
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host=bridge_host, port=bridge_port)

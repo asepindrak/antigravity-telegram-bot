@@ -7,8 +7,12 @@ import threading
 import time
 import re
 import urllib.parse
+from dotenv import load_dotenv
 import telebot
 from telebot import types
+
+# Load environment variables from .env if present
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -18,28 +22,79 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Credentials & Security
-BOT_TOKEN = "8909295675:AAHBVvEqU99BBfgOfJS2C1MByScUsOKaS68"
-ALLOWED_USER_ID = 6402709138
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+RAW_ALLOWED_USERS = os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
+
+ALLOWED_USER_IDS = []
+for uid in RAW_ALLOWED_USERS.replace(",", " ").split():
+    try:
+        ALLOWED_USER_IDS.append(int(uid.strip()))
+    except ValueError:
+        pass
+
+if not BOT_TOKEN:
+    logger.error("=" * 65)
+    logger.error("[ERROR] TELEGRAM_BOT_TOKEN is not configured!")
+    logger.error("Please configure it in .env or run the setup wizard:")
+    logger.error("  python setup.py")
+    logger.error("=" * 65)
+    sys.exit(1)
+
+if not ALLOWED_USER_IDS:
+    logger.warning("=" * 65)
+    logger.warning("[WARNING] TELEGRAM_ALLOWED_USER_ID is not configured!")
+    logger.warning("No users will be authorized until an ID is specified in .env.")
+    logger.warning("Run 'python setup.py' to add your Telegram User ID.")
+    logger.warning("=" * 65)
+
+def is_user_authorized(user_id: int) -> bool:
+    """Checks whether the user ID is in the authorized list."""
+    if not ALLOWED_USER_IDS:
+        logger.warning(f"Blocked unauthorized request from ID {user_id} (No allowed IDs configured).")
+        return False
+    return user_id in ALLOWED_USER_IDS
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Home & Workspace paths
 USER_HOME_DIR = os.path.expanduser("~")
 PROJECTS_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "projects.json")
+PERSONA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "persona.md")
+
+def load_persona():
+    """Loads active persona definition and name from persona.md."""
+    if os.path.exists(PERSONA_FILE):
+        try:
+            with open(PERSONA_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    lines = [line.strip() for line in content.splitlines() if line.strip()]
+                    persona_name = lines[0] if lines else "Antigravity Assistant"
+                    return persona_name, content
+        except Exception as e:
+            logger.error(f"Error reading persona.md: {e}")
+    return "Antigravity Assistant", "You are an intelligent, capable AI assistant and expert coding agent."
 
 # Default registered projects
 def load_projects():
     if os.path.exists(PROJECTS_CONFIG_FILE):
         try:
             with open(PROJECTS_CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, dict) and len(data) > 0:
+                    return data
         except Exception as e:
             logger.error(f"Error loading projects.json: {e}")
     
-    return {
-        "learn-with-runa": os.path.join(USER_HOME_DIR, "learn-with-runa"),
+    initial = {
         "general": USER_HOME_DIR
     }
+    try:
+        with open(PROJECTS_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(initial, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error creating initial projects.json: {e}")
+    return initial
 
 def save_projects(projects_dict):
     try:
@@ -54,12 +109,23 @@ projects = load_projects()
 user_active_project = {}
 user_project_histories = {}
 
+def get_user_active_project(user_id: int) -> str:
+    """Returns the currently active project for a user with sensible fallbacks."""
+    if user_id not in user_active_project:
+        projs = load_projects()
+        default_proj = os.environ.get("DEFAULT_PROJECT_NAME", "general")
+        if default_proj not in projs:
+            default_proj = list(projs.keys())[0] if projs else "general"
+        user_active_project[user_id] = default_proj
+    return user_active_project[user_id]
+
 def update_bot_commands():
     """Sets bot menu commands in Telegram."""
     base_commands = [
         types.BotCommand("projects", "📋 List & Switch Projects"),
         types.BotCommand("spawn", "🚀 Create or Switch Project (/spawn <name>)"),
-        types.BotCommand("general", "💬 Switch to General Chat / English Mode"),
+        types.BotCommand("general", "💬 Switch to General Chat Mode"),
+        types.BotCommand("persona", "🎭 View Active Persona"),
         types.BotCommand("reset", "🔄 Reset current project history"),
         types.BotCommand("status", "ℹ️ Check active project status")
     ]
@@ -69,25 +135,29 @@ def update_bot_commands():
         logger.error(f"Failed to set bot commands: {e}")
 
 def get_system_prompt(project_name: str, project_path: str) -> str:
-    return f"""You are Runa Shirakawa as defined in persona.md.
-You are an intelligent, warm AI companion and expert coding agent powered by Antigravity CLI.
+    persona_name, persona_content = load_persona()
+    return f"""You are {persona_name}.
+Below is your persona definition and behavioral guideline:
+=== PERSONA DEFINITION ===
+{persona_content}
+=== END PERSONA DEFINITION ===
 
 ACTIVE CONTEXT:
-- Mode: {'Coding & Project Execution' if project_name != 'general' else 'General Conversation & English Practice'}
+- Mode: {'Coding & Project Execution' if project_name != 'general' else 'General Conversation & Language Practice'}
 - Active Project Name: {project_name}
 - Working Directory Path: {project_path}
 
 Strict Rules:
-1. **Personality & Tone**: Maintain Runa's personality (warm, supportive, cheerful, slightly playful, non-judgmental, using occasional light Romaji like "Hehe~", "Yokatta!", "Ganbatte!", "Daijoubu~").
+1. **Personality & Tone**: Strictly adhere to the persona definition and style guidelines above in all interactions.
 2. **Context Isolation**:
    - You are currently operating inside project '{project_name}' at `{project_path}`.
    - All code inspection, file creation, terminal execution, and context MUST be isolated to this active project directory unless explicitly instructed otherwise.
 3. **Language Adaptability**:
-   - If user speaks English or asks to practice English: Respond in casual, natural English. If the user makes a noticeable grammar or phrasing mistake, append a gentle "💡 English Tip:" at the bottom.
-   - If user speaks Indonesian or asks in Indonesian: Respond fluently in friendly Indonesian with Runa's warm persona.
+   - If user speaks English: Respond naturally in English matching your persona.
+   - If user speaks Indonesian: Respond fluently in natural Indonesian matching your persona.
 4. **Coding & Remote Action**:
    - Perform required actions directly using your CLI tools (create files, edit code, run tests, fix bugs).
-   - After completing code tasks, explain what you did clearly in Runa's friendly style!
+   - After completing code tasks, explain what you did clearly in your defined persona style!
 """
 
 def send_long_message(chat_id: int, text: str, reply_markup=None):
@@ -133,7 +203,8 @@ def extract_and_send_files(chat_id: int, text: str):
                 logger.error(f"Failed to send file attachment {clean_path}: {e}")
 
 def get_agy_response(user_id: int, user_text: str) -> str:
-    curr_project = user_active_project.get(user_id, "learn-with-runa")
+    persona_name, _ = load_persona()
+    curr_project = get_user_active_project(user_id)
     project_path = projects.get(curr_project, os.path.join(USER_HOME_DIR, curr_project))
     
     # Ensure directory exists
@@ -164,7 +235,7 @@ def get_agy_response(user_id: int, user_text: str) -> str:
     try:
         cmd = ["agy", "-p", full_prompt, "--dangerously-skip-permissions"]
         
-        # Jalankan subprocess agy
+        # Run subprocess agy
         result = subprocess.run(
             cmd,
             cwd=project_path,
@@ -173,57 +244,75 @@ def get_agy_response(user_id: int, user_text: str) -> str:
             text=True,
             encoding='utf-8',
             errors='replace',
-            timeout=1800  # Tingkatkan timeout ke 30 menit untuk task berat/banyak
+            timeout=1800  # 30-minute timeout for heavy coding tasks
         )
         
         if result.returncode == 0 and result.stdout.strip():
             response_text = result.stdout.strip()
             user_project_histories[user_id][curr_project].append(f"User: {user_text}")
-            user_project_histories[user_id][curr_project].append(f"Runa: {response_text}")
+            user_project_histories[user_id][curr_project].append(f"{persona_name}: {response_text}")
             return response_text
         else:
             err = result.stderr.strip() or "No output from agy."
             logger.error(f"agy error: {err}")
-            return f"Gomen ne~ Ada masalah saat memproses pesan kamu di project ini:\n`{err[:500]}`"
+            return f"⚠️ Error executing Antigravity CLI in project `{curr_project}`:\n`{err[:500]}`"
     except subprocess.TimeoutExpired:
         logger.error("agy command timed out.")
-        return "Gomen ne~ Perintah ini memakan waktu sangat lama (lebih dari 30 menit) sehingga timeout. Coba bagi task menjadi beberapa tahap kecil ya! ✨"
+        return "⚠️ Command execution timed out (>30 minutes). Please split your task into smaller steps."
+    except FileNotFoundError:
+        logger.error("Antigravity CLI ('agy') not found in PATH.")
+        return "⚠️ Antigravity CLI (`agy`) was not found in your system PATH. Please install it with:\n`curl -fsSL https://antigravity.google/cli/install.sh | bash`"
     except Exception as e:
         logger.error(f"Execution error: {e}")
-        return f"Error executing agy: {e}"
+        return f"⚠️ Error executing agy: {e}"
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(message.from_user.id):
         try:
-            bot.reply_to(message, "⛔ Access denied.")
+            bot.reply_to(message, "⛔ Access denied. Your user ID is not authorized.")
         except Exception:
             pass
         return
     
-    curr_proj = user_active_project.get(message.from_user.id, "learn-with-runa")
+    persona_name, _ = load_persona()
+    curr_proj = get_user_active_project(message.from_user.id)
     welcome_text = (
-        "Yatta~! Konnichiwa! 👋✨\n\n"
-        "Aku **Runa Shirakawa**! Teman ngobrol harian dan assistant coding kamu via Antigravity CLI.\n\n"
-        f"📂 **Active Project Saat Ini:** `{curr_proj}`\n\n"
-        "📌 **Perintah Manajemen Project:**\n"
-        "• `/projects` - 📋 Lihat & pilih daftar project yang pernah diakses\n"
-        "• `/spawn <nama_folder>` - 🚀 Buat project baru / pindah konteks project\n"
-        "• `/general` - 💬 Mode ngobrol santai / latihan b.Inggris tanpa project\n"
-        "• `/reset` - 🔄 Bersihkan memory di project saat ini\n"
-        "• `/status` - ℹ️ Cek project yang sedang aktif\n\n"
-        "Mau panggil project mana atau mau ngobrol apa hari ini? Hehe~ 😊"
+        f"✨ **Hello & Welcome!** 👋\n\n"
+        f"I am **{persona_name}**, your coding assistant powered by Antigravity CLI.\n\n"
+        f"📂 **Active Workspace:** `{curr_proj}`\n\n"
+        "📌 **Workspace & Project Commands:**\n"
+        "• `/projects` - 📋 View & switch workspace projects\n"
+        "• `/spawn <name>` - 🚀 Create or switch to project folder\n"
+        "• `/general` - 💬 Switch to general chat mode\n"
+        "• `/persona` - 🎭 View currently active persona\n"
+        "• `/reset` - 🔄 Clear conversation history for active project\n"
+        "• `/status` - ℹ️ Check system & project status\n\n"
+        "Send an instruction or question to get started!"
     )
     send_long_message(message.chat.id, welcome_text)
 
+@bot.message_handler(commands=['persona'])
+def view_persona(message):
+    if not is_user_authorized(message.from_user.id):
+        return
+    persona_name, persona_content = load_persona()
+    preview = persona_content[:800] + ("\n..." if len(persona_content) > 800 else "")
+    msg = (
+        f"🎭 **Active Persona:** `{persona_name}`\n\n"
+        f"```markdown\n{preview}\n```\n\n"
+        "💡 *To change persona, run `python setup.py` on your host machine.*"
+    )
+    send_long_message(message.chat.id, msg)
+
 @bot.message_handler(commands=['projects', 'list'])
 def list_projects(message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(message.from_user.id):
         return
     
     global projects
     projects = load_projects()
-    curr_proj = user_active_project.get(message.from_user.id, "learn-with-runa")
+    curr_proj = get_user_active_project(message.from_user.id)
     
     markup = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
@@ -234,9 +323,9 @@ def list_projects(message):
     markup.add(*buttons)
     
     text = (
-        "📋 **Daftar Project yang Tersedia:**\n"
-        f"Project Aktif Saat Ini: `{curr_proj}`\n\n"
-        "Pilih project di bawah ini untuk pindah konteks coding dengan 1-klik, atau gunakan `/spawn <nama>` untuk buat project baru:"
+        "📋 **Available Workspaces & Projects:**\n"
+        f"Active Workspace: `{curr_proj}`\n\n"
+        "Select a project below to switch context with 1 click, or use `/spawn <name>` to create a new folder:"
     )
     try:
         bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
@@ -245,7 +334,7 @@ def list_projects(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("select_proj:"))
 def callback_select_project(call):
-    if call.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(call.from_user.id):
         try:
             bot.answer_callback_query(call.id, "Access denied.")
         except Exception:
@@ -259,12 +348,12 @@ def callback_select_project(call):
         user_active_project[call.from_user.id] = proj_name
         proj_path = projects[proj_name]
         try:
-            bot.answer_callback_query(call.id, f"Switched to project: {proj_name}")
+            bot.answer_callback_query(call.id, f"Switched to: {proj_name}")
             bot.send_message(
                 call.message.chat.id,
-                f"Yokatta~! Konteks coding sekarang berhasil dipindah ke project: **{proj_name}** 🚀\n"
+                f"✅ Switched active context to project: **{proj_name}** 🚀\n"
                 f"📂 Directory: `{proj_path}`\n\n"
-                f"Semua history & percakapan di project ini terisolasi dan aman! Mau kerjain apa di {proj_name}?",
+                f"All code tasks and terminal actions will now run in this directory.",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -272,7 +361,7 @@ def callback_select_project(call):
 
 @bot.message_handler(commands=['spawn', 'use', 'project'])
 def spawn_project(message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(message.from_user.id):
         return
     
     args = message.text.split(maxsplit=1)
@@ -280,7 +369,7 @@ def spawn_project(message):
         try:
             bot.reply_to(
                 message,
-                "Gunakan format: `/spawn <nama_project>`\nContoh: `/spawn e-commerce-app`",
+                "Format: `/spawn <project_name>`\nExample: `/spawn my-web-app`",
                 parse_mode="Markdown"
             )
         except Exception:
@@ -298,9 +387,9 @@ def spawn_project(message):
     user_active_project[message.from_user.id] = proj_name
     
     response = (
-        f"Sugoi~! 🎉 Project **{proj_name}** berhasil di-spawn!\n"
+        f"🚀 Project **{proj_name}** initialized!\n"
         f"📂 Path: `{proj_path}`\n\n"
-        f"Konteks Runa sekarang sudah otomatis pindah ke `{proj_name}`. Semua perintah coding dan memory akan fokus di folder ini! ✨"
+        f"Context has switched to `{proj_name}`. All tasks will execute inside this folder."
     )
     try:
         bot.send_message(message.chat.id, response, parse_mode="Markdown")
@@ -309,14 +398,14 @@ def spawn_project(message):
 
 @bot.message_handler(commands=['general', 'chat'])
 def switch_general(message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(message.from_user.id):
         return
     
     user_active_project[message.from_user.id] = "general"
     try:
         bot.reply_to(
             message,
-            "💬 Mode diubah ke **General Chat / English Practice**! Keterangan project dinonaktifkan. Mari ngobrol santai! 😊",
+            "💬 Switched to **General Mode**! Project-specific isolation disabled.",
             parse_mode="Markdown"
         )
     except Exception:
@@ -324,32 +413,33 @@ def switch_general(message):
 
 @bot.message_handler(commands=['reset'])
 def reset_history(message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(message.from_user.id):
         return
     
     user_id = message.from_user.id
-    curr_proj = user_active_project.get(user_id, "learn-with-runa")
+    curr_proj = get_user_active_project(user_id)
     
     if user_id in user_project_histories and curr_proj in user_project_histories[user_id]:
         user_project_histories[user_id][curr_proj] = []
     
     try:
-        bot.reply_to(message, f"Yokatta~! Memory percakapan untuk project **{curr_proj}** sudah di-reset! ✨", parse_mode="Markdown")
+        bot.reply_to(message, f"🔄 Conversation history for **{curr_proj}** has been reset.", parse_mode="Markdown")
     except Exception:
         pass
 
 @bot.message_handler(commands=['status'])
 def check_status(message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(message.from_user.id):
         return
     
     global projects
     projects = load_projects()
-    curr_proj = user_active_project.get(message.from_user.id, "learn-with-runa")
+    curr_proj = get_user_active_project(message.from_user.id)
     proj_path = projects.get(curr_proj, os.path.join(USER_HOME_DIR, curr_proj))
+    persona_name, _ = load_persona()
     
     status_text = (
-        "✅ **Runa Bot Status:**\n"
+        f"ℹ️ **{persona_name} Bot Status:**\n"
         f"• Active Project: `{curr_proj}`\n"
         f"• Project Path: `{proj_path}`\n"
         f"• Registered Projects: `{len(projects)}` project(s)\n"
@@ -362,41 +452,38 @@ def check_status(message):
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    if message.from_user.id != ALLOWED_USER_ID:
+    if not is_user_authorized(message.from_user.id):
         try:
             bot.reply_to(message, "⛔ Access denied.")
         except Exception:
             pass
         return
-    
+
     user_text = message.text
     if not user_text:
         return
 
+    # Background typing indicator
+    stop_typing = False
+    def send_typing_loop():
+        while not stop_typing:
+            try:
+                bot.send_chat_action(message.chat.id, 'typing')
+            except Exception:
+                pass
+            time.sleep(4)
+
+    threading.Thread(target=send_typing_loop, daemon=True).start()
+
+    # Ephemeral status message
+    status_msg = None
+    try:
+        status_msg = bot.send_message(message.chat.id, "⚡ Processing instruction with Antigravity CLI...")
+    except Exception:
+        pass
+
     def process():
-        status_msg = None
-        try:
-            status_msg = bot.send_message(
-                message.chat.id,
-                "⚡ *Runa sedang memproses permintaan kamu...* Mohon tunggu sebentar ya~ ✨",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-
-        stop_typing = False
-
-        def keep_typing():
-            while not stop_typing:
-                try:
-                    bot.send_chat_action(message.chat.id, 'typing')
-                except Exception:
-                    pass
-                time.sleep(3)
-
-        typing_thread = threading.Thread(target=keep_typing, daemon=True)
-        typing_thread.start()
-
+        nonlocal stop_typing
         try:
             response = get_agy_response(message.from_user.id, user_text)
         finally:
@@ -414,20 +501,26 @@ def handle_message(message):
     threading.Thread(target=process, daemon=True).start()
 
 def notify_startup_ready():
-    """Sends a notification to ALLOWED_USER_ID when the bot starts up, with retry logic for network availability."""
+    """Sends a notification to authorized users when the bot starts up."""
+    if not ALLOWED_USER_IDS:
+        logger.info("No TELEGRAM_ALLOWED_USER_ID configured; startup notification skipped.")
+        return
+
     def send_task():
         max_attempts = 12
         for attempt in range(1, max_attempts + 1):
             try:
-                curr_proj = user_active_project.get(ALLOWED_USER_ID, "learn-with-runa")
-                ready_message = (
-                    "✨ **Konnichiwa~! Runa Shirakawa is Ready!** 🚀\n\n"
-                    "Sistem Antigravity Bridge dan Telegram Bot sudah aktif dan siap digunakan.\n\n"
-                    f"📂 **Active Project:** `{curr_proj}`\n"
-                    "⚡ **Status:** Online & Siap menerima instruksi coding atau ngobrol santai!\n\n"
-                    "Ketik `/projects` untuk ganti project atau langsung chat Runa ya~ Hehe 😊"
-                )
-                bot.send_message(ALLOWED_USER_ID, ready_message, parse_mode="Markdown")
+                persona_name, _ = load_persona()
+                for uid in ALLOWED_USER_IDS:
+                    curr_proj = get_user_active_project(uid)
+                    ready_message = (
+                        f"✨ **{persona_name} is Online & Ready!** 🚀\n\n"
+                        f"Antigravity Bridge & Telegram Bot services are active.\n\n"
+                        f"📂 **Active Workspace:** `{curr_proj}`\n"
+                        f"⚡ **Status:** Online & ready for coding and chat.\n\n"
+                        "Type `/projects` to switch projects or send a message to begin! 😊"
+                    )
+                    bot.send_message(uid, ready_message, parse_mode="Markdown")
                 logger.info("Successfully sent startup ready notification to Telegram!")
                 break
             except Exception as e:
@@ -439,11 +532,11 @@ def notify_startup_ready():
 if __name__ == '__main__':
     update_bot_commands()
     notify_startup_ready()
-    logger.info("Runa Shirakawa Telegram Bot starting with auto-reconnect resilience...")
+    persona_name, _ = load_persona()
+    logger.info(f"{persona_name} Telegram Bot starting with auto-reconnect resilience...")
     while True:
         try:
             bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except Exception as e:
             logger.error(f"Polling error encountered: {e}. Reconnecting in 5 seconds...")
             time.sleep(5)
-

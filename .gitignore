@@ -1,4 +1,52 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables & Credentials
 .env
+.env.local
+.env.*.local
+
+# Project configurations & Local state
+projects.json
+*.db
+*.sqlite3
+
+# Logs & Runtime output
 *.log
+logs/
+bridge_server.log
+bot.log
+
+# Temporary & OS files
+.DS_Store
+Thumbs.db
+*.tmp
+Startup

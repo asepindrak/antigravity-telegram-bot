@@ -37,10 +37,12 @@ Write-Host ""
 # Check Auto-start Status
 Write-Host "[Windows Auto-Start Status]" -ForegroundColor Yellow
 $startupFolder = [Environment]::GetFolderPath('Startup')
-$shortcutPath = Join-Path $startupFolder 'Start_AGY_Bridge_and_Telegram_Bot.lnk'
-if (Test-Path $shortcutPath) {
+$shortcutPath = Join-Path $startupFolder 'Start_Antigravity_Telegram_Bot.lnk'
+$oldShortcutPath = Join-Path $startupFolder 'Start_AGY_Bridge_and_Telegram_Bot.lnk'
+if ((Test-Path $shortcutPath) -or (Test-Path $oldShortcutPath)) {
     Write-Host "  Auto-Start : ENABLED" -ForegroundColor Green
-    Write-Host "  Shortcut   : $shortcutPath" -ForegroundColor Gray
+    $activeSc = if (Test-Path $shortcutPath) { $shortcutPath } else { $oldShortcutPath }
+    Write-Host "  Shortcut   : $activeSc" -ForegroundColor Gray
 } else {
     Write-Host "  Auto-Start : DISABLED (Run enable_autostart.bat to enable)" -ForegroundColor Gray
 }

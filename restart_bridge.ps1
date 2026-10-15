@@ -18,7 +18,12 @@ if ($conns) {
 Start-Sleep -Seconds 2
 
 Write-Host "[2/3] Launching AGY OpenAI Bridge Server..." -ForegroundColor Yellow
-Start-Process -FilePath "python" -ArgumentList "-m uvicorn openai_agy_bridge:app --host 0.0.0.0 --port 8001" -WindowStyle Hidden -WorkingDirectory "C:\Users\sangp\learn-with-runa"
+$py = "python"
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    if (Get-Command py -ErrorAction SilentlyContinue) { $py = "py" }
+    elseif (Test-Path "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe") { $py = "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe" }
+}
+Start-Process -FilePath $py -ArgumentList "-m uvicorn openai_agy_bridge:app --host 0.0.0.0 --port 8001" -WindowStyle Hidden -WorkingDirectory $PSScriptRoot
 
 Start-Sleep -Seconds 3
 

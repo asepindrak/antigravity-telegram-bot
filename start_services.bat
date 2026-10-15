@@ -1,10 +1,23 @@
 @echo off
-title AGY Bridge ^& Telegram Bot Launcher
+title Antigravity Bridge ^& Telegram Bot Launcher
 cd /d "%~dp0"
-set "PATH=%LOCALAPPDATA%\Programs\Python\Python311;%LOCALAPPDATA%\Programs\Python\Python311\Scripts;%PATH%"
+
+:: Auto-detect Python executable
+set "PY_CMD=python"
+where python >nul 2>nul
+if %errorlevel% neq 0 (
+    where py >nul 2>nul
+    if %errorlevel% equ 0 (
+        set "PY_CMD=py"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+        set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+        set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    )
+)
 
 echo ========================================================
-echo   Starting AGY OpenAI Bridge ^& Telegram Bot
+echo   Starting Antigravity Bridge ^& Telegram Bot
 echo ========================================================
 echo.
 
@@ -15,7 +28,7 @@ if errorlevel 1 (
     echo [INFO] AGY Bridge Server is ALREADY running on port 8001.
 ) else (
     echo [STARTING] Launching AGY Bridge Server...
-    start "AGY OpenAI Bridge Server" /MIN cmd /k "title AGY OpenAI Bridge Server && python openai_agy_bridge.py"
+    start "AGY OpenAI Bridge Server" /MIN cmd /k "title AGY OpenAI Bridge Server && \"%PY_CMD%\" openai_agy_bridge.py"
 )
 
 :: 2. Check ^& Start Telegram Bot
@@ -26,13 +39,13 @@ if errorlevel 1 (
     echo [INFO] Telegram Bot is ALREADY running.
 ) else (
     echo [STARTING] Launching Telegram Bot...
-    start "Runa Telegram Bot" /MIN cmd /k "title Runa Telegram Bot && python telegram_bot.py"
+    start "Antigravity Telegram Bot" /MIN cmd /k "title Antigravity Telegram Bot && \"%PY_CMD%\" telegram_bot.py"
 )
 
 echo.
 echo ========================================================
 echo   Services initiated successfully!
 echo   - AGY Bridge URL : http://localhost:8001
-echo   - Telegram Bot   : Running
+echo   - Telegram Bot   : Running in background
 echo ========================================================
 ping 127.0.0.1 -n 4 >nul
