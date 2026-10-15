@@ -2,17 +2,17 @@
 title Antigravity Bridge ^& Telegram Bot Launcher
 cd /d "%~dp0"
 
-:: Auto-detect Python executable
-set "PY_CMD=python"
-where python >nul 2>nul
-if %errorlevel% neq 0 (
+:: Auto-detect Python executable (prioritize actual installation over WindowsApps dummy)
+if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+    set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+    set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+) else (
     where py >nul 2>nul
     if %errorlevel% equ 0 (
         set "PY_CMD=py"
-    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
-        set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
-    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
-        set "PY_CMD=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    ) else (
+        set "PY_CMD=python"
     )
 )
 
