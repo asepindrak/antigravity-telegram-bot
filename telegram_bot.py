@@ -221,6 +221,8 @@ def list_projects(message):
     if message.from_user.id != ALLOWED_USER_ID:
         return
     
+    global projects
+    projects = load_projects()
     curr_proj = user_active_project.get(message.from_user.id, "learn-with-runa")
     
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -250,6 +252,8 @@ def callback_select_project(call):
             pass
         return
     
+    global projects
+    projects = load_projects()
     proj_name = call.data.split("select_proj:")[1]
     if proj_name in projects:
         user_active_project[call.from_user.id] = proj_name
@@ -339,6 +343,8 @@ def check_status(message):
     if message.from_user.id != ALLOWED_USER_ID:
         return
     
+    global projects
+    projects = load_projects()
     curr_proj = user_active_project.get(message.from_user.id, "learn-with-runa")
     proj_path = projects.get(curr_proj, os.path.join(USER_HOME_DIR, curr_proj))
     
@@ -412,8 +418,8 @@ if __name__ == '__main__':
     logger.info("Runa Shirakawa Telegram Bot starting with auto-reconnect resilience...")
     while True:
         try:
-            bot.polling(non_stop=True, interval=0, timeout=60, long_polling_timeout=60)
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
         except Exception as e:
-            logger.error(f"Polling error encountered: {e}. Reconnecting in 10 seconds...")
-            time.sleep(10)
+            logger.error(f"Polling error encountered: {e}. Reconnecting in 5 seconds...")
+            time.sleep(5)
 
