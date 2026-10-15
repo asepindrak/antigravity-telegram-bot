@@ -413,8 +413,32 @@ def handle_message(message):
 
     threading.Thread(target=process, daemon=True).start()
 
+def notify_startup_ready():
+    """Sends a notification to ALLOWED_USER_ID when the bot starts up, with retry logic for network availability."""
+    def send_task():
+        max_attempts = 12
+        for attempt in range(1, max_attempts + 1):
+            try:
+                curr_proj = user_active_project.get(ALLOWED_USER_ID, "learn-with-runa")
+                ready_message = (
+                    "✨ **Konnichiwa~! Runa Shirakawa is Ready!** 🚀\n\n"
+                    "Sistem Antigravity Bridge dan Telegram Bot sudah aktif dan siap digunakan.\n\n"
+                    f"📂 **Active Project:** `{curr_proj}`\n"
+                    "⚡ **Status:** Online & Siap menerima instruksi coding atau ngobrol santai!\n\n"
+                    "Ketik `/projects` untuk ganti project atau langsung chat Runa ya~ Hehe 😊"
+                )
+                bot.send_message(ALLOWED_USER_ID, ready_message, parse_mode="Markdown")
+                logger.info("Successfully sent startup ready notification to Telegram!")
+                break
+            except Exception as e:
+                logger.warning(f"Startup notification attempt {attempt}/{max_attempts} failed: {e}. Retrying in 5s...")
+                time.sleep(5)
+
+    threading.Thread(target=send_task, daemon=True).start()
+
 if __name__ == '__main__':
     update_bot_commands()
+    notify_startup_ready()
     logger.info("Runa Shirakawa Telegram Bot starting with auto-reconnect resilience...")
     while True:
         try:
