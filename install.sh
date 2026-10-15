@@ -94,13 +94,18 @@ else
 fi
 
 # 4. Setup Python Virtual Environment & Install Dependencies
-echo -e "${CYAN}[4/6] Installing Python packages...${RESET}"
+echo -e "${CYAN}[4/6] Installing dependencies...${RESET}"
 if [ ! -d ".venv" ]; then
     $PYTHON_CMD -m venv .venv
 fi
 source .venv/bin/activate
 pip install --upgrade pip > /dev/null 2>&1 || true
 pip install -r requirements.txt
+
+if command -v npm &>/dev/null; then
+    echo "Installing Node.js dependencies for PC Music Player..."
+    npm install --silent 2>/dev/null || true
+fi
 
 # Make all shell scripts executable
 chmod +x *.sh 2>/dev/null || true

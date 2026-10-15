@@ -107,10 +107,28 @@ Switch between distinct personalities or define your own custom persona:
 
 ---
 
+## 🎵 PC Music Remote Control (YouTube Music + Iframe)
+
+Control your PC's active music playback directly from Telegram using official **YouTube Music API (`ytmusic-api`)** and an embedded **YouTube Iframe Web Player**:
+
+### ✨ Key Features:
+- 🎯 **Accurate Music Search**: Uses `ytmusic-api` to search official song tracks, artists, and albums on YouTube Music, avoiding mismatched video memes or covers.
+- 🎶 **Single Track & Playlist Generation**:
+  - Ask to play a single song: `/play Bohemian Rhapsody Queen`
+  - Ask to create a playlist: `/playlist lagu lofi santai buat belajar` (searches or generates playlist tracks, queues them up, and auto-plays).
+- 🔄 **Automatic Sequential Playback**: Web player on PC detects when a song ends (`YT.PlayerState.ENDED`) and seamlessly transitions to the next track automatically!
+- 🎛️ **Full Remote Control**: Play, Pause, Resume, Next, Previous, and Stop with instant response and interactive Telegram buttons.
+- 📱 **Direct Mobile Links**: Ask `/link` to get direct YouTube and YouTube Music links so you can continue listening on your phone.
+- 🔘 **Flexible Feature Toggle**: Easily enable or disable the music remote feature anytime via `/music on` / `/music off` in Telegram, or through Option 5 in `python setup.py`.
+- 🖥️ **Aesthetic Dark-Mode Player UI**: Runs locally on PC at `http://localhost:8002/player` with vinyl animations, glowing visualizers, live progress bar, and queue list.
+
+---
+
 ## 📱 Telegram Bot Commands
 
 Once your bot is running, message it on Telegram with these commands:
 
+### 💼 Workspace & Coding Commands:
 | Command | Description |
 | :--- | :--- |
 | `/start` | Display welcome banner with active workspace and persona |
@@ -121,6 +139,28 @@ Once your bot is running, message it on Telegram with these commands:
 | `/status` | Check running status, workspace path, and connected CLI engine |
 | `/reset` | Clear recent conversation history for the active project |
 
+### 🎵 PC Music Remote Commands:
+| Command | Description |
+| :--- | :--- |
+| `/play <judul/artis>` | Search on YouTube Music & play immediately on PC |
+| `/playlist <tema>` | Generate playlist (e.g. `/playlist Sheila on 7`) & auto-play |
+| `/pause` | Pause music playback on PC |
+| `/resume` | Resume music playback on PC |
+| `/next` / `/skip` | Skip to the next song in playlist |
+| `/prev` | Return to the previous song in playlist |
+| `/stop` | Stop playback and clear active playlist queue |
+| `/link` / `/np` | Send direct YouTube & YT Music links to Telegram for phone listening |
+| `/queue` | View upcoming tracks in the active playlist queue |
+| `/music` | Show player status & toggle button |
+| `/music on` / `off` | Enable or disable PC Music Remote feature |
+
+> 💡 **Natural Chat Supported:** You can also chat naturally without slash commands! For example:
+> - *"play lagu Sheila on 7 Dan"*
+> - *"bikinin playlist lofi buat belajar"*
+> - *"pause musiknya"*
+> - *"next lagunya"*
+> - *"minta link lagunya dong"*
+
 ---
 
 ## 🛠️ Service Management
@@ -128,7 +168,7 @@ Once your bot is running, message it on Telegram with these commands:
 ### 🪟 Windows:
 | Action | Batch Script | PowerShell Script |
 | :--- | :--- | :--- |
-| **Start** | `start_services.bat` | *(Silent: `start_services_silent.vbs`)* |
+| **Start (Bridge + Bot + Music)** | `start_services.bat` | *(Silent: `start_services_silent.vbs`)* |
 | **Stop** | `stop_services.bat` | `stop_services.ps1` |
 | **Status** | `status_services.bat` | `status_services.ps1` |
 | **Restart** | `restart_bridge.bat` | `restart_bridge.ps1` |
@@ -150,14 +190,15 @@ Once your bot is running, message it on Telegram with these commands:
 ## 📋 Prerequisites
 
 1. **Python 3.8+**
-2. **Git**
-3. **Google Antigravity CLI (`agy`)**:
+2. **Node.js 18+** (Required for `ytmusic-api` and PC Music Player Server)
+3. **Git**
+4. **Google Antigravity CLI (`agy`)**:
    ```bash
    curl -fsSL https://antigravity.google/cli/install.sh | bash
    ```
-4. **Telegram Bot Token**:
+5. **Telegram Bot Token**:
    - Create a bot with [@BotFather](https://t.me/BotFather) on Telegram and copy the API token.
-5. **Telegram User ID**:
+6. **Telegram User ID**:
    - Send `/start` to [@userinfobot](https://t.me/userinfobot) to get your numeric user ID.
 
 ---

@@ -17,8 +17,22 @@ if ($bridgeConn) {
 
 Write-Host ""
 
-# 2. Stop Telegram Bot
-Write-Host "[2/2] Stopping Telegram Bot..." -ForegroundColor Yellow
+# 2. Stop PC Music Player
+Write-Host "[2/3] Stopping PC Music Player (Port 8002)..." -ForegroundColor Yellow
+$musicConn = Get-NetTCPConnection -LocalPort 8002 -ErrorAction SilentlyContinue
+if ($musicConn) {
+    foreach ($c in $musicConn) {
+        Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host "  -> Successfully stopped Music Player process." -ForegroundColor Green
+} else {
+    Write-Host "  -> Music Player is not running." -ForegroundColor Gray
+}
+
+Write-Host ""
+
+# 3. Stop Telegram Bot
+Write-Host "[3/3] Stopping Telegram Bot..." -ForegroundColor Yellow
 $bots = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*telegram_bot.py*" }
 if ($bots) {
     foreach ($b in $bots) {

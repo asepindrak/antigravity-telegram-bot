@@ -1,0 +1,24 @@
+{
+  "name": "learn-with-runa",
+  "version": "1.0.0",
+  "description": "[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue)](#) [![Python](https://img.shields.io/badge/Python-3.8%2B-brightgreen)](#) [![Engine](https://img.shields.io/badge/Engine-Google%20Antigravity%20CLI%20(agy)-orange)](#)",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asepindrak/antigravity-telegram-bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/asepindrak/antigravity-telegram-bot/issues"
+  },
+  "homepage": "https://github.com/asepindrak/antigravity-telegram-bot#readme",
+  "dependencies": {
+    "ytmusic-api": "^5.3.1"
+  }
+}

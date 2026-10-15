@@ -16,7 +16,15 @@ If bridgeRet = 20 Then
     WshShell.Run "cmd.exe /c " & chr(34) & currentDir & "\run_bridge.bat" & chr(34), 0, False
 End If
 
-' 2. Check if Telegram Bot is already running
+' 2. Check if PC Music Player is already running on port 8002
+checkMusicCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command " & chr(34) & "$c = Get-NetTCPConnection -LocalPort 8002 -ErrorAction SilentlyContinue; if ($c) { exit 10 } else { exit 20 }" & chr(34)
+musicRet = WshShell.Run(checkMusicCmd, 0, True)
+
+If musicRet = 20 Then
+    WshShell.Run "cmd.exe /c " & chr(34) & currentDir & "\start_music.bat" & chr(34), 0, False
+End If
+
+' 3. Check if Telegram Bot is already running
 checkBotCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command " & chr(34) & "$b = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*telegram_bot.py*' -and $_.CommandLine -notlike '*Get-CimInstance*' }; if ($b) { exit 10 } else { exit 20 }" & chr(34)
 botRet = WshShell.Run(checkBotCmd, 0, True)
 

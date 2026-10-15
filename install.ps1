@@ -83,10 +83,16 @@ if ((Test-Path "telegram_bot.py") -and (Test-Path "setup.py")) {
     }
 }
 
-# 3. Install Python Dependencies
-Write-Host "[3/6] Installing Python packages from requirements.txt..." -ForegroundColor Cyan
+# 3. Install Python Dependencies & Node packages
+Write-Host "[3/6] Installing dependencies..." -ForegroundColor Cyan
 & $py -m pip install -r requirements.txt --quiet --disable-pip-version-check
 Write-Host "  ✓ Python packages installed successfully." -ForegroundColor Green
+
+if (Get-Command npm -ErrorAction SilentlyContinue) {
+    Write-Host "  Installing Node.js dependencies for PC Music Player..." -ForegroundColor Cyan
+    npm install --silent 2>$null
+    Write-Host "  ✓ Node.js packages (ytmusic-api) installed." -ForegroundColor Green
+}
 
 # 4. Interactive Configuration Wizard
 Write-Host ""

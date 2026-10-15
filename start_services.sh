@@ -32,7 +32,18 @@ else
     nohup $PY openai_agy_bridge.py > logs/bridge.log 2>&1 &
 fi
 
-# 2. Start Telegram Bot
+# 2. Start PC Music Player
+MUSIC_PID=$(lsof -t -i:8002 2>/dev/null)
+if [ -n "$MUSIC_PID" ]; then
+    echo "[INFO] Music Player Server is ALREADY running (PID: $MUSIC_PID)."
+else
+    if command -v node &>/dev/null; then
+        echo "[STARTING] Launching PC Music Player Server on port 8002..."
+        nohup node music_player_server.js > logs/music.log 2>&1 &
+    fi
+fi
+
+# 3. Start Telegram Bot
 BOT_PID=$(pgrep -f "telegram_bot.py" 2>/dev/null)
 if [ -n "$BOT_PID" ]; then
     echo "[INFO] Telegram Bot is ALREADY running (PID: $BOT_PID)."

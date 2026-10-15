@@ -281,6 +281,8 @@ def show_interactive_menu():
         persona_name = get_active_persona()
         autostart_ok, autostart_text = check_autostart_status()
         agy_installed = check_agy_installed()
+        music_enabled = env_vars.get("MUSIC_FEATURE_ENABLED", "true").lower() in ("true", "1", "yes")
+        music_port = env_vars.get("MUSIC_PLAYER_PORT", "8002")
 
         print("\n" + "=" * 60)
         print(c(BOLD + CYAN, "       🤖 ANTIGRAVITY TELEGRAM BOT - SETUP WIZARD       "))
@@ -288,6 +290,7 @@ def show_interactive_menu():
         print(f" • Telegram Bot Token : {get_masked_token(token)}")
         print(f" • Allowed User ID    : {user_ids if user_ids else c(YELLOW, '[Not Configured ⚠️]')}")
         print(f" • Active Persona     : {c(GREEN, persona_name)}")
+        print(f" • PC Music Remote    : {c(GREEN, 'Enabled ✓') if music_enabled else c(YELLOW, 'Disabled')} (Port {music_port})")
         print(f" • Antigravity CLI    : {c(GREEN, 'Installed ✓') if agy_installed else c(RED, 'Not in PATH ⚠️')}")
         print(f" • Auto-Start on Boot : {c(GREEN if autostart_ok else YELLOW, autostart_text)}")
         print("=" * 60)
@@ -295,14 +298,15 @@ def show_interactive_menu():
         print(" 2) 👤 Set Telegram Allowed User ID(s)")
         print(" 3) 🎭 Change Persona (Runa, Senior Engineer, Jarvis, Custom)")
         print(" 4) 📁 Manage Workspace Projects")
-        print(" 5) 🚀 Toggle Auto-Start at Boot (Enable / Disable)")
-        print(" 6) 🧪 Test Telegram Bot Connection")
-        print(" 7) 🔄 Restart All Services (Bridge + Bot)")
-        print(" 8) ⏹️ Stop All Services")
-        print(" 9) 🚪 Exit")
+        print(" 5) 🎵 Toggle PC Music Remote (Enable / Disable)")
+        print(" 6) 🚀 Toggle Auto-Start at Boot (Enable / Disable)")
+        print(" 7) 🧪 Test Telegram Bot Connection")
+        print(" 8) 🔄 Restart All Services (Bridge + Bot + Music)")
+        print(" 9) ⏹️ Stop All Services")
+        print(" 10) 🚪 Exit")
         print("=" * 60)
         
-        choice = input("Enter choice (1-9): ").strip()
+        choice = input("Enter choice (1-10): ").strip()
 
         if choice == "1":
             print("\nGet your bot token from @BotFather on Telegram.")
@@ -338,13 +342,22 @@ def show_interactive_menu():
         elif choice == "4":
             manage_projects()
         elif choice == "5":
+            if music_enabled:
+                env_vars["MUSIC_FEATURE_ENABLED"] = "false"
+                write_env(env_vars)
+                print(c(YELLOW, "✓ PC Music Remote disabled."))
+            else:
+                env_vars["MUSIC_FEATURE_ENABLED"] = "true"
+                write_env(env_vars)
+                print(c(GREEN, "✓ PC Music Remote enabled."))
+        elif choice == "6":
             if autostart_ok:
                 disable_autostart()
                 print(c(YELLOW, "✓ Auto-start disabled."))
             else:
                 enable_autostart()
                 print(c(GREEN, "✓ Auto-start enabled."))
-        elif choice == "6":
+        elif choice == "7":
             print("\nTesting Telegram connection...")
             if not token:
                 print(c(RED, "Please configure your bot token first (Option 1)."))
@@ -354,19 +367,19 @@ def show_interactive_menu():
                     print(c(GREEN, f"✓ Success! Connected as: {info}"))
                 else:
                     print(c(RED, f"✗ Connection failed: {info}"))
-        elif choice == "7":
+        elif choice == "8":
             print("\nRestarting services...")
             stop_services()
             start_services()
-        elif choice == "8":
+        elif choice == "9":
             print("\nStopping services...")
             stop_services()
             print(c(YELLOW, "Services stopped."))
-        elif choice == "9":
+        elif choice == "10":
             print("Goodbye!")
             break
         else:
-            print(c(RED, "Invalid option. Please choose 1-9."))
+            print(c(RED, "Invalid option. Please choose 1-10."))
 
 def main():
     parser = argparse.ArgumentParser(description="Antigravity Telegram Bot Setup Wizard")
@@ -374,12 +387,13 @@ def main():
     parser.add_argument("--user-id", help="Set Telegram Allowed User ID(s)")
     parser.add_argument("--persona", choices=["runa", "engineer", "jarvis"], help="Set persona preset")
     parser.add_argument("--autostart", choices=["enable", "disable"], help="Configure autostart on boot")
+    parser.add_argument("--music", choices=["enable", "disable"], help="Configure PC Music Remote feature")
     parser.add_argument("--non-interactive", action="store_true", help="Run without interactive prompt")
 
     args = parser.parse_args()
 
     # CLI automated mode
-    if args.token or args.user_id or args.persona or args.autostart or args.non_interactive:
+    if args.token or args.user_id or args.persona or args.autostart or args.music or args.non_interactive:
         env_vars = read_env()
         if args.token:
             env_vars["TELEGRAM_BOT_TOKEN"] = args.token.strip()
@@ -387,7 +401,10 @@ def main():
         if args.user_id:
             env_vars["TELEGRAM_ALLOWED_USER_ID"] = args.user_id.strip()
             print(c(GREEN, "✓ Allowed User ID updated."))
-        if args.token or args.user_id:
+        if args.music:
+            env_vars["MUSIC_FEATURE_ENABLED"] = "true" if args.music == "enable" else "false"
+            print(c(GREEN, f"✓ PC Music Remote set to: {args.music}."))
+        if args.token or args.user_id or args.music:
             write_env(env_vars)
         if args.persona:
             set_persona(args.persona)

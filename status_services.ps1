@@ -21,6 +21,25 @@ if ($bridgeConn) {
 
 Write-Host ""
 
+# Check PC Music Player Server
+Write-Host "[PC YouTube Music Player Server]" -ForegroundColor Yellow
+$musicConn = Get-NetTCPConnection -LocalPort 8002 -ErrorAction SilentlyContinue
+if ($musicConn) {
+    $mPid = $musicConn[0].OwningProcess
+    Write-Host "  Process  : RUNNING (PID: $mPid on Port 8002)" -ForegroundColor Green
+    try {
+        $mRes = Invoke-RestMethod -Uri "http://localhost:8002/api/status" -TimeoutSec 3
+        $trackTitle = if ($mRes.current_track) { "$($mRes.current_track.title) - $($mRes.current_track.artist)" } else { "Idle" }
+        Write-Host "  Health   : OK | Mode: $($mRes.playbackState) | Track: $trackTitle" -ForegroundColor Green
+    } catch {
+        Write-Host "  Health   : Warning (Server warming up)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  Process  : STOPPED" -ForegroundColor Red
+}
+
+Write-Host ""
+
 # Check Telegram Bot
 Write-Host "[Telegram Bot]" -ForegroundColor Yellow
 $bots = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*telegram_bot.py*" }
