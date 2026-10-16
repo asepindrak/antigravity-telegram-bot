@@ -284,6 +284,9 @@ def show_interactive_menu():
         music_enabled = env_vars.get("MUSIC_FEATURE_ENABLED", "true").lower() in ("true", "1", "yes")
         music_auto_pc = env_vars.get("MUSIC_AUTO_PLAY_PC", "true").lower() in ("true", "1", "yes")
         music_port = env_vars.get("MUSIC_PLAYER_PORT", "8002")
+        voice_enabled = env_vars.get("VOICE_REPLY_ENABLED", "true").lower() in ("true", "1", "yes")
+        voice_name = env_vars.get("VOICE_NAME", "id-ID-GadisNeural")
+        v_voice_label = "Runa (Female)" if "Gadis" in voice_name else ("Ardi (Male)" if "Ardi" in voice_name else voice_name)
 
         print("\n" + "=" * 60)
         print(c(BOLD + CYAN, "       🤖 ANTIGRAVITY TELEGRAM BOT - SETUP WIZARD       "))
@@ -291,6 +294,7 @@ def show_interactive_menu():
         print(f" • Telegram Bot Token : {get_masked_token(token)}")
         print(f" • Allowed User ID    : {user_ids if user_ids else c(YELLOW, '[Not Configured ⚠️]')}")
         print(f" • Active Persona     : {c(GREEN, persona_name)}")
+        print(f" • Voice Note Reply   : {c(GREEN, 'Enabled ✓') if voice_enabled else c(YELLOW, 'Disabled')} ({v_voice_label})")
         print(f" • PC Music Remote    : {c(GREEN, 'Enabled ✓') if music_enabled else c(YELLOW, 'Disabled')} (Port {music_port})")
         print(f" • Auto-Play on PC    : {c(GREEN, 'Enabled ✓') if music_auto_pc else c(YELLOW, 'Disabled (Queue & links only)')}")
         print(f" • Antigravity CLI    : {c(GREEN, 'Installed ✓') if agy_installed else c(RED, 'Not in PATH ⚠️')}")
@@ -300,16 +304,17 @@ def show_interactive_menu():
         print(" 2) 👤 Set Telegram Allowed User ID(s)")
         print(" 3) 🎭 Change Persona (Runa, Senior Engineer, Jarvis, Custom)")
         print(" 4) 📁 Manage Workspace Projects")
-        print(" 5) 🎵 Toggle PC Music Remote (Enable / Disable)")
-        print(" 6) 🖥️ Toggle Auto-Play on PC (Enable / Disable)")
-        print(" 7) 🚀 Toggle Auto-Start at Boot (Enable / Disable)")
-        print(" 8) 🧪 Test Telegram Bot Connection")
-        print(" 9) 🔄 Restart All Services (Bridge + Bot + Music)")
-        print(" 10) ⏹️ Stop All Services")
-        print(" 11) 🚪 Exit")
+        print(" 5) 🎙️ Toggle Voice Note Reply (Enable / Disable)")
+        print(" 6) 🎵 Toggle PC Music Remote (Enable / Disable)")
+        print(" 7) 🖥️ Toggle Auto-Play on PC (Enable / Disable)")
+        print(" 8) 🚀 Toggle Auto-Start at Boot (Enable / Disable)")
+        print(" 9) 🧪 Test Telegram Bot Connection")
+        print(" 10) 🔄 Restart All Services (Bridge + Bot + Music)")
+        print(" 11) ⏹️ Stop All Services")
+        print(" 12) 🚪 Exit")
         print("=" * 60)
         
-        choice = input("Enter choice (1-11): ").strip()
+        choice = input("Enter choice (1-12): ").strip()
 
         if choice == "1":
             print("\nGet your bot token from @BotFather on Telegram.")
@@ -345,6 +350,15 @@ def show_interactive_menu():
         elif choice == "4":
             manage_projects()
         elif choice == "5":
+            if voice_enabled:
+                env_vars["VOICE_REPLY_ENABLED"] = "false"
+                write_env(env_vars)
+                print(c(YELLOW, "✓ Voice Note Reply disabled."))
+            else:
+                env_vars["VOICE_REPLY_ENABLED"] = "true"
+                write_env(env_vars)
+                print(c(GREEN, "✓ Voice Note Reply enabled."))
+        elif choice == "6":
             if music_enabled:
                 env_vars["MUSIC_FEATURE_ENABLED"] = "false"
                 write_env(env_vars)
@@ -353,7 +367,7 @@ def show_interactive_menu():
                 env_vars["MUSIC_FEATURE_ENABLED"] = "true"
                 write_env(env_vars)
                 print(c(GREEN, "✓ PC Music Remote enabled."))
-        elif choice == "6":
+        elif choice == "7":
             if music_auto_pc:
                 env_vars["MUSIC_AUTO_PLAY_PC"] = "false"
                 write_env(env_vars)
@@ -362,14 +376,14 @@ def show_interactive_menu():
                 env_vars["MUSIC_AUTO_PLAY_PC"] = "true"
                 write_env(env_vars)
                 print(c(GREEN, "✓ Auto-Play on PC enabled. PC player will automatically play requested songs."))
-        elif choice == "7":
+        elif choice == "8":
             if autostart_ok:
                 disable_autostart()
                 print(c(YELLOW, "✓ Auto-start disabled."))
             else:
                 enable_autostart()
                 print(c(GREEN, "✓ Auto-start enabled."))
-        elif choice == "8":
+        elif choice == "9":
             print("\nTesting Telegram connection...")
             if not token:
                 print(c(RED, "Please configure your bot token first (Option 1)."))
@@ -379,19 +393,19 @@ def show_interactive_menu():
                     print(c(GREEN, f"✓ Success! Connected as: {info}"))
                 else:
                     print(c(RED, f"✗ Connection failed: {info}"))
-        elif choice == "9":
+        elif choice == "10":
             print("\nRestarting services...")
             stop_services()
             start_services()
-        elif choice == "10":
+        elif choice == "11":
             print("\nStopping services...")
             stop_services()
             print(c(YELLOW, "Services stopped."))
-        elif choice == "11":
+        elif choice == "12":
             print("Goodbye!")
             break
         else:
-            print(c(RED, "Invalid option. Please choose 1-11."))
+            print(c(RED, "Invalid option. Please choose 1-12."))
 
 def main():
     parser = argparse.ArgumentParser(description="Antigravity Telegram Bot Setup Wizard")

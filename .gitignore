@@ -56,3 +56,7 @@ yarn-debug.log*
 yarn-error.log*
 *.tmp
 Startup
+*.ogg
+*.mp3
+*.wav
+temp_voice/

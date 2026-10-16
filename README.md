@@ -124,6 +124,21 @@ Control your PC's active music playback directly from Telegram using official **
 
 ---
 
+## 🎙️ Telegram Voice Notes & Natural Speech (STT + TTS)
+
+Chat naturally using Telegram **Voice Notes** (pesan suara):
+- 🗣️ **Kirim Voice Note dari HP**: Bot otomatis men-download dan mentranskripsikan suara kamu menjadi teks.
+- 💬 **Balasan Lengkap + Voice Tipis-Tipis**:
+  - Jika kamu kirim voice note: Bot membalas dengan **Voice Note singkat** yang ramah & natural ("voice tipis-tipis"), sekaligus mengirimkan **jawaban teks lengkap dan file code** dari agent.
+  - Jika kamu kirim pesan teks biasa: Bot tetap membalas dengan teks biasa tanpa voice note yang tidak perlu.
+- ⚡ **Multi-Tier STT Architecture**:
+  - **Free Default**: Google Web Speech API (zero-config, tanpa API key).
+  - **Cloud Turbo**: Otomatis menggunakan **Groq Whisper** (`whisper-large-v3-turbo`) atau **OpenAI Whisper** jika API key tersedia di `.env`.
+- 🎧 **Natural Indonesian Voices**: Didukung oleh neural TTS (`edge-tts`) dengan karakter suara **Runa** (`id-ID-GadisNeural`) dan **Ardi** (`id-ID-ArdiNeural`).
+- 🎛️ **Pengaturan Langsung di Chat**: Ketik `/voice` untuk melihat status, toggle ON/OFF, ganti karakter suara, atau dengar contoh suara!
+
+---
+
 ## 📱 Telegram Bot Commands
 
 Once your bot is running, message it on Telegram with these commands:
@@ -136,7 +151,8 @@ Once your bot is running, message it on Telegram with these commands:
 | `/spawn <name>` | Create or switch to a new project folder (e.g., `/spawn my-web-app`) |
 | `/general` | Switch to general conversation mode without project isolation |
 | `/persona` | View currently active persona and system instructions |
-| `/status` | Check running status, workspace path, and connected CLI engine |
+| `/voice` | 🎙️ Pengaturan Voice Note (ON/OFF, ganti suara Runa/Ardi, tes audio) |
+| `/status` | Check running status, workspace path, music & voice settings |
 | `/reset` | Clear recent conversation history for the active project |
 
 ### 🎵 PC Music Remote Commands:
@@ -154,12 +170,10 @@ Once your bot is running, message it on Telegram with these commands:
 | `/music` | Show player status & toggle button |
 | `/music on` / `off` | Enable or disable PC Music Remote feature |
 
-> 💡 **Natural Chat Supported:** You can also chat naturally without slash commands! For example:
-> - *"play lagu Sheila on 7 Dan"*
+> 💡 **Natural Chat Supported:** You can also chat naturally via text OR Voice Note! For example:
+> - *"play lagu Sheila on 7 Dan"* (spoken or typed)
 > - *"bikinin playlist lofi buat belajar"*
-> - *"pause musiknya"*
-> - *"next lagunya"*
-> - *"minta link lagunya dong"*
+> - *"tolong jelaskan cara kerja code ini"* (bisa via VN, bot balas teks lengkap + VN singkat!)
 
 ---
 

@@ -10,7 +10,8 @@ import urllib.parse
 from dotenv import load_dotenv
 import requests
 import webbrowser
-from typing import Optional, Dict, Any, List
+import asyncio
+from typing import Optional, Dict, Any, List, Tuple
 import telebot
 from telebot import types
 
@@ -23,6 +24,11 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Voice Note & Speech Settings
+VOICE_REPLY_ENABLED = os.environ.get("VOICE_REPLY_ENABLED", "true").strip().lower() in ("true", "1", "yes")
+VOICE_NAME = os.environ.get("VOICE_NAME", "id-ID-GadisNeural").strip()
+VOICE_SPEED = os.environ.get("VOICE_SPEED", "+0%").strip()
 
 # Credentials & Security
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -129,6 +135,7 @@ def update_bot_commands():
         types.BotCommand("playlist", "🎶 Create & auto-play playlist (/playlist <theme>)"),
         types.BotCommand("music", "🎛️ PC Music remote & settings"),
         types.BotCommand("link", "📱 Get YouTube link for mobile"),
+        types.BotCommand("voice", "🎙️ Voice note settings (ON/OFF & suara)"),
         types.BotCommand("projects", "📋 List & Switch Projects"),
         types.BotCommand("spawn", "🚀 Create or Switch Project (/spawn <name>)"),
         types.BotCommand("general", "💬 Switch to General Chat Mode"),
@@ -338,6 +345,269 @@ Strict Rules:
    - After completing code tasks, explain what you did clearly in your defined persona style!
 """
 
+# ==============================================================================
+# Voice Note & Audio Speech (STT: Groq/OpenAI/Google, TTS: edge-tts)
+# ==============================================================================
+def is_voice_reply_enabled() -> bool:
+    global VOICE_REPLY_ENABLED
+    return VOICE_REPLY_ENABLED
+
+def set_voice_reply_enabled(val: bool):
+    global VOICE_REPLY_ENABLED
+    VOICE_REPLY_ENABLED = val
+    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "VOICE_REPLY_ENABLED=" in content:
+                content = re.sub(r"VOICE_REPLY_ENABLED=.*", f"VOICE_REPLY_ENABLED={'true' if val else 'false'}", content)
+            else:
+                content += f"\nVOICE_REPLY_ENABLED={'true' if val else 'false'}\n"
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            logger.error(f"Error saving VOICE_REPLY_ENABLED to .env: {e}")
+
+def set_voice_name(val: str):
+    global VOICE_NAME
+    VOICE_NAME = val
+    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "VOICE_NAME=" in content:
+                content = re.sub(r"VOICE_NAME=.*", f"VOICE_NAME={val}", content)
+            else:
+                content += f"\nVOICE_NAME={val}\n"
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            logger.error(f"Error saving VOICE_NAME to .env: {e}")
+
+def clean_text_for_speech(text: str) -> str:
+    """Strips markdown, code blocks, URLs, and formatting for natural spoken speech."""
+    text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+    text = re.sub(r'`[^`]+`', '', text)
+    text = re.sub(r'file:///[^\s\)\>]+', '', text)
+    text = re.sub(r'https?://[^\s\)]+', '', text)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    text = re.sub(r'[*#_~>|]+', ' ', text)
+    cleaned = ' '.join(text.split()).strip()
+    return cleaned
+
+def extract_voice_summary(raw_response: str) -> Tuple[str, str]:
+    """
+    Extracts short voice summary and returns (clean_full_text, voice_spoken_text).
+    Detects <<<VOICE_REPLY>>>...<<<END_VOICE_REPLY>>> or falls back to 1-2 conversational sentences.
+    """
+    match = re.search(r'<<<VOICE_REPLY>>>(.*?)<<<END_VOICE_REPLY>>>', raw_response, re.DOTALL | re.IGNORECASE)
+    if match:
+        voice_text = match.group(1).strip()
+        clean_text = re.sub(r'<<<VOICE_REPLY>>>.*?<<<END_VOICE_REPLY>>>', '', raw_response, flags=re.DOTALL | re.IGNORECASE).strip()
+        voice_text = clean_text_for_speech(voice_text)
+        if voice_text:
+            return clean_text, voice_text
+
+    clean_text = raw_response.strip()
+    no_code = re.sub(r'```.*?```', '', clean_text, flags=re.DOTALL)
+    no_code = clean_text_for_speech(no_code)
+    lines = [l.strip() for l in no_code.splitlines() if l.strip()]
+    spoken = ""
+    if lines:
+        sents = re.split(r'(?<=[.!?])\s+', lines[0])
+        spoken = " ".join(sents[:2]).strip()
+        if len(spoken) > 160:
+            spoken = spoken[:157] + "..."
+    if not spoken:
+        spoken = "Hai~ Tugasnya udah selesai aku kerjain ya, detail lengkapnya bisa kamu cek di chat!"
+    return clean_text, spoken
+
+def transcribe_audio(file_path: str) -> Optional[str]:
+    """Transcribes audio file to text using Groq -> OpenAI -> Google Web Speech."""
+    # 1. Try Groq Whisper if GROQ_API_KEY is configured
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    if groq_key:
+        try:
+            with open(file_path, "rb") as f:
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {groq_key}"},
+                    files={"file": (os.path.basename(file_path), f, "audio/ogg")},
+                    data={"model": "whisper-large-v3-turbo"},
+                    timeout=20
+                )
+            if r.status_code == 200:
+                text = r.json().get("text", "").strip()
+                if text:
+                    logger.info("Successfully transcribed voice with Groq Whisper")
+                    return text
+        except Exception as e:
+            logger.warning(f"Groq STT failed: {e}")
+
+    # 2. Try OpenAI Whisper if OPENAI_API_KEY is configured
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if openai_key:
+        try:
+            with open(file_path, "rb") as f:
+                r = requests.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {openai_key}"},
+                    files={"file": (os.path.basename(file_path), f, "audio/ogg")},
+                    data={"model": "whisper-1"},
+                    timeout=25
+                )
+            if r.status_code == 200:
+                text = r.json().get("text", "").strip()
+                if text:
+                    logger.info("Successfully transcribed voice with OpenAI Whisper")
+                    return text
+        except Exception as e:
+            logger.warning(f"OpenAI STT failed: {e}")
+
+    # 3. Fallback: Free Google Speech Recognition via imageio-ffmpeg + SpeechRecognition
+    try:
+        import imageio_ffmpeg
+        import speech_recognition as sr
+        
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        wav_path = file_path + ".wav"
+        
+        # Convert ogg to 16kHz mono WAV
+        cmd = [ffmpeg_exe, "-y", "-i", file_path, "-ar", "16000", "-ac", "1", wav_path]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if res.returncode == 0 and os.path.exists(wav_path):
+            r = sr.Recognizer()
+            with sr.AudioFile(wav_path) as source:
+                r.adjust_for_ambient_noise(source, duration=0.2)
+                audio_data = r.record(source)
+            
+            # Try Indonesian first
+            try:
+                text = r.recognize_google(audio_data, language="id-ID")
+                if text and text.strip():
+                    logger.info("Successfully transcribed voice with Google Speech Recognition (id-ID)")
+                    return text.strip()
+            except sr.UnknownValueError:
+                pass
+            except Exception as e:
+                logger.warning(f"Google STT id-ID error: {e}")
+                
+            # Try English fallback
+            try:
+                text = r.recognize_google(audio_data, language="en-US")
+                if text and text.strip():
+                    logger.info("Successfully transcribed voice with Google Speech Recognition (en-US)")
+                    return text.strip()
+            except Exception:
+                pass
+        
+        if os.path.exists(wav_path):
+            try:
+                os.remove(wav_path)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"Free STT fallback error: {e}")
+        
+    return None
+
+def generate_voice_reply(text: str, output_path: str, voice_override: str = None) -> bool:
+    """Generates an OGG Opus or MP3 voice note from text using edge-tts."""
+    try:
+        clean_text = clean_text_for_speech(text)
+        if not clean_text:
+            return False
+            
+        chosen_voice = voice_override or VOICE_NAME
+        temp_mp3 = output_path + ".temp.mp3"
+        
+        async def _synth():
+            import edge_tts
+            communicate = edge_tts.Communicate(clean_text, chosen_voice, rate=VOICE_SPEED)
+            await communicate.save(temp_mp3)
+            
+        try:
+            asyncio.run(_synth())
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(_synth())
+            loop.close()
+
+        if not os.path.exists(temp_mp3) or os.path.getsize(temp_mp3) == 0:
+            return False
+            
+        # Convert to OGG Opus via imageio-ffmpeg for Telegram native waveform voice format
+        ffmpeg_exe = None
+        try:
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            pass
+            
+        if ffmpeg_exe and os.path.exists(ffmpeg_exe):
+            cmd = [ffmpeg_exe, "-y", "-i", temp_mp3, "-c:a", "libopus", "-b:a", "32k", "-vbr", "on", output_path]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                try:
+                    os.remove(temp_mp3)
+                except Exception:
+                    pass
+                return True
+                
+        # Fallback: keep temp_mp3 as output_path (Telegram also plays MP3 as voice note)
+        if os.path.exists(temp_mp3):
+            if os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except Exception:
+                    pass
+            os.rename(temp_mp3, output_path)
+            return True
+            
+        return False
+    except Exception as e:
+        logger.error(f"Error generating voice reply: {e}")
+        return False
+
+def get_voice_status_view() -> Tuple[str, types.InlineKeyboardMarkup]:
+    stt_engine = "Google Web Speech (Free / Default)"
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        stt_engine = "Groq Whisper (Cloud STT)"
+    elif os.environ.get("OPENAI_API_KEY", "").strip():
+        stt_engine = "OpenAI Whisper (Cloud STT)"
+        
+    v_status = "🟢 Aktif (Balas voice tipis2 jika user kirim VN)" if is_voice_reply_enabled() else "⛔ Nonaktif (Hanya balas teks)"
+    v_name = "Runa (id-ID-GadisNeural - Ceria & Ramah)" if "Gadis" in VOICE_NAME else ("Ardi (id-ID-ArdiNeural - Laki-laki)" if "Ardi" in VOICE_NAME else VOICE_NAME)
+    
+    text = (
+        "🎙️ **Pengaturan Voice Note Telegram**\n\n"
+        f"• **Status Voice Reply:** {v_status}\n"
+        f"• **Karakter Suara:** `{v_name}`\n"
+        f"• **Mesin Transkripsi (STT):** `{stt_engine}`\n"
+        f"• **Kecepatan Bicara:** `{VOICE_SPEED}`\n\n"
+        "💡 *Kamu bisa langsung kirim Voice Note ke chat ini kapan saja! Bot akan menstranskripsikannya dan membalas dengan voice note singkat serta jawaban lengkap di teks.*"
+    )
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    toggle_btn = types.InlineKeyboardButton(
+        text="⛔ Matikan Voice Reply" if is_voice_reply_enabled() else "✅ Aktifkan Voice Reply",
+        callback_data="voice_toggle:toggle"
+    )
+    switch_btn = types.InlineKeyboardButton(
+        text="👨 Ganti ke Ardi" if "Gadis" in VOICE_NAME else "👩 Ganti ke Runa",
+        callback_data="voice_switch:toggle"
+    )
+    test_btn = types.InlineKeyboardButton(
+        text="🔊 Dengar Contoh Suara",
+        callback_data="voice_test:sample"
+    )
+    markup.row(toggle_btn)
+    markup.row(switch_btn, test_btn)
+    return text, markup
+
 def send_long_message(chat_id: int, text: str, reply_markup=None):
     """Splits and sends messages if they exceed Telegram limit."""
     max_len = 4000
@@ -380,7 +650,7 @@ def extract_and_send_files(chat_id: int, text: str):
             except Exception as e:
                 logger.error(f"Failed to send file attachment {clean_path}: {e}")
 
-def get_agy_response(user_id: int, user_text: str) -> str:
+def get_agy_response(user_id: int, user_text: str, is_voice: bool = False) -> str:
     persona_name, _ = load_persona()
     curr_project = get_user_active_project(user_id)
     project_path = projects.get(curr_project, os.path.join(USER_HOME_DIR, curr_project))
@@ -408,7 +678,18 @@ def get_agy_response(user_id: int, user_text: str) -> str:
         context_str = f"Recent History for [{curr_project}]:\n" + "\n".join(truncated_history) + "\n\n"
     
     system_prompt = get_system_prompt(curr_project, project_path)
-    full_prompt = f"{system_prompt}\n{context_str}User message: {user_text}"
+    voice_instruction = ""
+    if is_voice:
+        voice_instruction = (
+            "\n[IMPORTANT - USER SPOKE VIA TELEGRAM VOICE NOTE]:\n"
+            "The user spoke to you via a spoken Telegram voice note.\n"
+            "1. Provide your complete, detailed, high-quality answer as usual in text.\n"
+            "2. At the very end of your response, on a new line, provide a very short, friendly, natural spoken voice reply (1-2 sentences, max 25 words, strictly no code/links/formatting, matching your persona) enclosed in:\n"
+            "<<<VOICE_REPLY>>>\n"
+            "(your short spoken response here)\n"
+            "<<<END_VOICE_REPLY>>>\n\n"
+        )
+    full_prompt = f"{system_prompt}\n{context_str}{voice_instruction}User message: {user_text}"
     
     try:
         cmd = ["agy", "-p", full_prompt, "--dangerously-skip-permissions"]
@@ -1111,6 +1392,13 @@ def check_status(message):
         curr = st["current_track"]
         music_info += f" | Memutar: {curr.get('title')} ({st.get('playbackState')})"
     
+    v_stt = "Google Web Speech"
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        v_stt = "Groq Whisper"
+    elif os.environ.get("OPENAI_API_KEY", "").strip():
+        v_stt = "OpenAI Whisper"
+    v_info = f"🟢 Aktif ({'Runa' if 'Gadis' in VOICE_NAME else 'Ardi'} | {v_stt})" if is_voice_reply_enabled() else "⛔ Nonaktif"
+
     status_text = (
         f"ℹ️ **{persona_name} Bot Status:**\n"
         f"• Active Project: `{curr_proj}`\n"
@@ -1118,11 +1406,194 @@ def check_status(message):
         f"• Registered Projects: `{len(projects)}` project(s)\n"
         f"• Engine: Antigravity CLI (`agy`)\n"
         f"• PC Music Remote: {music_info}\n"
+        f"• Voice Note Reply: {v_info}\n"
     )
     try:
         bot.send_message(message.chat.id, status_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error checking status: {e}")
+
+@bot.message_handler(commands=['voice'])
+def cmd_voice(message):
+    if not is_user_authorized(message.from_user.id):
+        return
+    text, markup = get_voice_status_view()
+    bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("voice_"))
+def callback_voice_control(call):
+    if not is_user_authorized(call.from_user.id):
+        safe_answer_callback(call.id, "Access denied.")
+        return
+        
+    data = call.data
+    if data == "voice_toggle:toggle":
+        new_val = not is_voice_reply_enabled()
+        set_voice_reply_enabled(new_val)
+        safe_answer_callback(call.id, f"Voice Reply {'Diaktifkan' if new_val else 'Dinonaktifkan'}")
+        text, markup = get_voice_status_view()
+        try:
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+        except Exception:
+            pass
+    elif data == "voice_switch:toggle":
+        new_voice = "id-ID-ArdiNeural" if "Gadis" in VOICE_NAME else "id-ID-GadisNeural"
+        set_voice_name(new_voice)
+        v_label = "Ardi" if "Ardi" in new_voice else "Runa"
+        safe_answer_callback(call.id, f"Suara diubah ke {v_label}")
+        text, markup = get_voice_status_view()
+        try:
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+        except Exception:
+            pass
+    elif data == "voice_test:sample":
+        safe_answer_callback(call.id, "Membuat contoh suara...")
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_voice")
+        os.makedirs(temp_dir, exist_ok=True)
+        sample_path = os.path.join(temp_dir, f"sample_{int(time.time())}.ogg")
+        persona_name, _ = load_persona()
+        sample_text = f"Hai! Aku {persona_name}. Ini contoh suara voice note aku! Aku siap nemenin kamu ngobrol dan coding~"
+        
+        try:
+            if generate_voice_reply(sample_text, sample_path):
+                with open(sample_path, "rb") as vf:
+                    bot.send_voice(call.message.chat.id, vf, caption=f"🎙️ *Contoh Suara {persona_name}*", parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error testing sample voice: {e}")
+            bot.send_message(call.message.chat.id, f"⚠️ Gagal memutar contoh suara: {e}")
+        finally:
+            if os.path.exists(sample_path):
+                try:
+                    os.remove(sample_path)
+                except Exception:
+                    pass
+
+@bot.message_handler(content_types=['voice', 'audio'])
+def handle_voice_message(message):
+    if not is_user_authorized(message.from_user.id):
+        try:
+            bot.reply_to(message, "⛔ Access denied.")
+        except Exception:
+            pass
+        return
+
+    voice = message.voice or message.audio
+    if not voice:
+        return
+
+    # Ephemeral listening message
+    status_msg = None
+    try:
+        status_msg = bot.reply_to(message, "🎙️ _Mendengarkan voice note..._", parse_mode="Markdown")
+    except Exception:
+        pass
+
+    def process_voice():
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_voice")
+        os.makedirs(temp_dir, exist_ok=True)
+        raw_audio_path = os.path.join(temp_dir, f"in_{message.message_id}_{int(time.time())}.ogg")
+        out_voice_path = os.path.join(temp_dir, f"out_{message.message_id}_{int(time.time())}.ogg")
+
+        try:
+            # 1. Download voice note file from Telegram
+            file_info = bot.get_file(voice.file_id)
+            downloaded = bot.download_file(file_info.file_path)
+            with open(raw_audio_path, 'wb') as f:
+                f.write(downloaded)
+
+            # 2. Transcribe to text
+            transcribed_text = transcribe_audio(raw_audio_path)
+            if not transcribed_text or not transcribed_text.strip():
+                if status_msg:
+                    try:
+                        bot.edit_message_text(
+                            "🎙️ Suara di voice note belum tertangkap jelas nih. Boleh coba kirim ulang atau ketik lewat teks? 😊",
+                            message.chat.id,
+                            status_msg.message_id
+                        )
+                    except Exception:
+                        pass
+                return
+
+            # 3. Update status message to show recognized speech
+            if status_msg:
+                try:
+                    bot.edit_message_text(
+                        f"🗣️ **Kamu:** _{transcribed_text}_",
+                        message.chat.id,
+                        status_msg.message_id,
+                        parse_mode="Markdown"
+                    )
+                except Exception:
+                    pass
+
+            # 4. Check natural music commands first (e.g., spoken music requests)
+            if handle_natural_music_command(message, transcribed_text):
+                return
+
+            # 5. Background typing / record action indicator
+            stop_action = False
+            def send_action_loop():
+                while not stop_action:
+                    try:
+                        bot.send_chat_action(message.chat.id, 'record_voice')
+                    except Exception:
+                        pass
+                    time.sleep(4)
+
+            threading.Thread(target=send_action_loop, daemon=True).start()
+
+            agent_status = None
+            try:
+                agent_status = bot.send_message(message.chat.id, "⚡ Processing instruction with Antigravity CLI...")
+            except Exception:
+                pass
+
+            try:
+                raw_response = get_agy_response(message.from_user.id, transcribed_text, is_voice=True)
+            finally:
+                stop_action = True
+
+            if agent_status:
+                try:
+                    bot.delete_message(message.chat.id, agent_status.message_id)
+                except Exception:
+                    pass
+
+            clean_text, voice_spoken = extract_voice_summary(raw_response)
+
+            # 6. Send short voice note reply if enabled ("voice tipis2 aja")
+            if is_voice_reply_enabled() and voice_spoken:
+                try:
+                    bot.send_chat_action(message.chat.id, 'record_voice')
+                    if generate_voice_reply(voice_spoken, out_voice_path):
+                        with open(out_voice_path, 'rb') as vf:
+                            bot.send_voice(message.chat.id, vf, reply_to_message_id=message.message_id)
+                except Exception as e:
+                    logger.error(f"Error sending voice reply: {e}")
+
+            # 7. Send full detailed text response ("agent tetap sambil balas teks panjang nya")
+            send_long_message(message.chat.id, clean_text)
+            extract_and_send_files(message.chat.id, clean_text)
+
+        except Exception as e:
+            logger.error(f"Error in process_voice: {e}")
+            bot.send_message(message.chat.id, f"⚠️ Terjadi kendala saat memproses voice note: {e}")
+        finally:
+            for p in [raw_audio_path, out_voice_path]:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+                wav_p = p + ".wav"
+                if os.path.exists(wav_p):
+                    try:
+                        os.remove(wav_p)
+                    except Exception:
+                        pass
+
+    threading.Thread(target=process_voice, daemon=True).start()
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
