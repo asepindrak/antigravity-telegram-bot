@@ -1,10 +1,18 @@
 @echo off
 cd /d "%~dp0"
 
-:: Auto-detect Python executable
-where python >nul 2>nul
-if %errorlevel% equ 0 (
-    python setup.py %*
+:: Auto-detect Python executable (prioritize actual installation over WindowsApps dummy)
+if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" setup.py %*
+    goto :eof
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" setup.py %*
+    goto :eof
+) else if exist "C:\Python311\python.exe" (
+    "C:\Python311\python.exe" setup.py %*
+    goto :eof
+) else if exist "C:\Python312\python.exe" (
+    "C:\Python312\python.exe" setup.py %*
     goto :eof
 )
 
@@ -14,13 +22,9 @@ if %errorlevel% equ 0 (
     goto :eof
 )
 
-if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
-    "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" setup.py %*
-    goto :eof
-)
-
-if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
-    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" setup.py %*
+where python >nul 2>nul
+if %errorlevel% equ 0 (
+    python setup.py %*
     goto :eof
 )
 

@@ -6,7 +6,6 @@
  */
 
 const http = require('http');
-const url = require('url');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
@@ -39,6 +38,7 @@ if (ytmusic) {
 // Player State
 const state = {
   enabled: process.env.MUSIC_FEATURE_ENABLED !== 'false',
+  autoPlayPC: process.env.MUSIC_AUTO_PLAY_PC !== 'false',
   playbackState: 'STOPPED', // 'PLAYING', 'PAUSED', 'STOPPED', 'BUFFERING'
   queue: [],
   currentIndex: -1,
@@ -114,19 +114,24 @@ function normalizeTrack(raw) {
 function openPlayerInBrowser() {
   const playerUrl = `http://localhost:${PORT}/player`;
   const platform = process.platform;
-  let cmd = `start "" "${playerUrl}"`;
-  if (platform === 'darwin') {
-    cmd = `open "${playerUrl}"`;
-  } else if (platform === 'linux') {
-    cmd = `xdg-open "${playerUrl}"`;
+  console.log(`[Music Server] Launching browser for: ${playerUrl}`);
+
+  if (platform === 'win32') {
+    // On Windows, 'start' via cmd or explorer uses the active desktop shell and avoids Chrome ProcessSingleton lockouts
+    exec(`cmd.exe /c start "" "${playerUrl}"`, (err) => {
+      if (err) {
+        exec(`powershell -NoProfile -Command "Start-Process '${playerUrl}'"`, (err2) => {
+          if (err2) {
+            exec(`explorer.exe "${playerUrl}"`);
+          }
+        });
+      }
+    });
+  } else if (platform === 'darwin') {
+    exec(`open "${playerUrl}"`);
+  } else {
+    exec(`xdg-open "${playerUrl}"`);
   }
-  exec(cmd, (err) => {
-    if (err) {
-      console.warn('[Music Server] Could not auto-launch browser:', err.message);
-    } else {
-      console.log(`[Music Server] Opened player URL in browser: ${playerUrl}`);
-    }
-  });
 }
 
 // Helpers for Searching and Playlist Creation
@@ -158,7 +163,6 @@ async function createPlaylistFromQuery(query, limit = 10) {
   let playlistTitle = query;
 
   try {
-    // 1. First attempt: search YouTube Music official/community playlists
     const playlists = await ytmusic.searchPlaylists(query);
     if (playlists && playlists.length > 0) {
       const topPl = playlists[0];
@@ -172,7 +176,6 @@ async function createPlaylistFromQuery(query, limit = 10) {
     console.warn('[Music Server] searchPlaylists warning:', err.message);
   }
 
-  // 2. If no playlist tracks found, fallback to searching songs directly for query
   if (!tracks || tracks.length === 0) {
     const songs = await ytmusic.searchSongs(query);
     tracks = (songs || []).slice(0, limit).map(normalizeTrack).filter(Boolean);
@@ -201,8 +204,8 @@ function getPlayerHtml() {
       --accent-primary: #8a2be2;
       --accent-neon: #00f2fe;
       --accent-glow: rgba(0, 242, 254, 0.35);
-      --card-bg: rgba(22, 19, 38, 0.75);
-      --border-color: rgba(255, 255, 255, 0.08);
+      --card-bg: rgba(22, 19, 38, 0.85);
+      --border-color: rgba(255, 255, 255, 0.1);
       --text-main: #f3f4f6;
       --text-muted: #9ca3af;
     }
@@ -226,7 +229,6 @@ function getPlayerHtml() {
       padding: 24px;
     }
 
-    /* Ambient background lights */
     .ambient-glow {
       position: fixed;
       width: 500px;
@@ -244,12 +246,11 @@ function getPlayerHtml() {
       100% { transform: translate(20%, 20%) scale(1.15); }
     }
 
-    /* Player Container */
     .player-app {
       position: relative;
       z-index: 10;
       width: 100%;
-      max-width: 900px;
+      max-width: 960px;
       background: var(--card-bg);
       backdrop-filter: blur(24px);
       -webkit-backdrop-filter: blur(24px);
@@ -261,15 +262,14 @@ function getPlayerHtml() {
       grid-template-columns: 1fr 340px;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 840px) {
       .player-app {
         grid-template-columns: 1fr;
       }
     }
 
-    /* Left: Active Player Card */
     .main-player {
-      padding: 36px;
+      padding: 32px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -281,14 +281,14 @@ function getPlayerHtml() {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 14px;
+      padding: 6px 16px;
       border-radius: 999px;
-      background: rgba(0, 242, 254, 0.1);
-      border: 1px solid rgba(0, 242, 254, 0.25);
+      background: rgba(0, 242, 254, 0.12);
+      border: 1px solid rgba(0, 242, 254, 0.3);
       font-size: 0.82rem;
       font-weight: 600;
       color: var(--accent-neon);
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       letter-spacing: 0.5px;
     }
 
@@ -306,55 +306,51 @@ function getPlayerHtml() {
       50% { opacity: 0.4; transform: scale(0.85); }
     }
 
-    /* Vinyl / Album Art Container */
-    .album-art-wrap {
+    /* YouTube Video / Visual Screen */
+    .screen-wrapper {
       position: relative;
-      width: 220px;
-      height: 220px;
-      margin-bottom: 24px;
+      width: 100%;
+      max-width: 480px;
+      aspect-ratio: 16 / 9;
+      border-radius: 20px;
+      overflow: hidden;
+      margin-bottom: 20px;
+      background: #000;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5), 0 0 25px rgba(138, 43, 226, 0.35);
     }
 
-    .album-art {
+    #ytplayer {
       width: 100%;
       height: 100%;
-      border-radius: 24px;
-      object-fit: cover;
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5), 0 0 25px rgba(138, 43, 226, 0.4);
-      border: 2px solid rgba(255, 255, 255, 0.1);
-      transition: transform 0.5s ease;
+      border: none;
     }
 
-    .playing .album-art {
-      animation: vinylSpin 20s linear infinite;
-      border-radius: 50%;
+    .view-toggle {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
     }
 
-    @keyframes vinylSpin {
-      100% { transform: rotate(360deg); }
+    .btn-toggle {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
     }
 
-    .vinyl-hole {
-      display: none;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      background: #0d0b18;
-      border: 4px solid var(--accent-neon);
-      box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
-      z-index: 5;
+    .btn-toggle.active {
+      background: rgba(0, 242, 254, 0.15);
+      border-color: var(--accent-neon);
+      color: var(--accent-neon);
     }
 
-    .playing .vinyl-hole {
-      display: block;
-    }
-
-    /* Song Info */
     .song-title {
-      font-size: 1.45rem;
+      font-size: 1.4rem;
       font-weight: 700;
       margin-bottom: 6px;
       color: #fff;
@@ -365,16 +361,15 @@ function getPlayerHtml() {
     }
 
     .song-artist {
-      font-size: 1.05rem;
+      font-size: 1rem;
       color: var(--accent-neon);
       font-weight: 500;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
 
-    /* Progress Bar */
     .progress-container {
       width: 100%;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
 
     .progress-bar {
@@ -404,13 +399,12 @@ function getPlayerHtml() {
       margin-top: 8px;
     }
 
-    /* Controls */
     .controls {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 18px;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
 
     .btn-ctrl {
@@ -437,8 +431,8 @@ function getPlayerHtml() {
     }
 
     .btn-play {
-      width: 64px;
-      height: 64px;
+      width: 60px;
+      height: 60px;
       background: linear-gradient(135deg, var(--accent-primary), #4facfe);
       border: none;
       box-shadow: 0 8px 24px var(--accent-glow);
@@ -451,7 +445,6 @@ function getPlayerHtml() {
       color: #fff;
     }
 
-    /* Volume Slider */
     .volume-row {
       display: flex;
       align-items: center;
@@ -467,13 +460,13 @@ function getPlayerHtml() {
       cursor: pointer;
     }
 
-    /* Right: Queue Sidebar */
+    /* Queue Sidebar */
     .queue-sidebar {
       padding: 30px 24px;
       background: rgba(10, 8, 20, 0.6);
       display: flex;
       flex-direction: column;
-      max-height: 580px;
+      max-height: 600px;
     }
 
     .queue-header {
@@ -533,7 +526,7 @@ function getPlayerHtml() {
     }
 
     .queue-item.active {
-      background: rgba(138, 43, 226, 0.2);
+      background: rgba(138, 43, 226, 0.25);
       border-color: var(--accent-neon);
       box-shadow: 0 0 15px rgba(0, 242, 254, 0.2);
     }
@@ -568,55 +561,40 @@ function getPlayerHtml() {
       text-overflow: ellipsis;
     }
 
-    /* Hidden YouTube Iframe Player */
-    #yt-player-wrap {
-      position: absolute;
-      top: -9999px;
-      left: -9999px;
-      width: 1px;
-      height: 1px;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    /* Gesture overlay for audio autoplay unlock */
-    .audio-unlock-overlay {
+    /* Unmute Banner */
+    .unmute-banner {
+      display: none;
       position: fixed;
-      bottom: 24px;
-      background: rgba(20, 16, 36, 0.95);
-      border: 1px solid var(--accent-neon);
-      padding: 14px 22px;
-      border-radius: 16px;
+      top: 20px;
+      background: linear-gradient(135deg, #ff0844, #ffb199);
       color: #fff;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.8), 0 0 20px var(--accent-glow);
-      z-index: 100;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: 30px;
+      box-shadow: 0 10px 25px rgba(255, 8, 68, 0.5);
+      z-index: 1000;
       cursor: pointer;
-      animation: bounce 2s infinite;
-    }
-
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-6px); }
+      animation: pulse 1.5s infinite;
     }
   </style>
 </head>
 <body>
   <div class="ambient-glow"></div>
 
-  <div class="player-app" id="playerApp">
-    <!-- Main Player -->
+  <div class="unmute-banner" id="unmuteBanner" onclick="enableAudioOutput()">
+    🔊 Klik di sini untuk mengaktifkan suara PC (Autoplay Policy)
+  </div>
+
+  <div class="player-app">
     <div class="main-player">
       <div class="status-badge">
         <span class="pulse-dot"></span>
         <span id="remoteStatusText">Telegram Remote Connected</span>
       </div>
 
-      <div class="album-art-wrap" id="albumArtWrap">
-        <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500" alt="Album Art" class="album-art" id="albumArt">
-        <div class="vinyl-hole"></div>
+      <!-- Real YouTube Video Player Screen -->
+      <div class="screen-wrapper" id="screenWrapper">
+        <div id="ytplayer"></div>
       </div>
 
       <h1 class="song-title" id="songTitle">Ready to Play</h1>
@@ -660,16 +638,6 @@ function getPlayerHtml() {
     </div>
   </div>
 
-  <!-- Audio unlock banner if needed -->
-  <div class="audio-unlock-overlay" id="audioUnlock" onclick="unlockAudio()">
-    <span>🔊 <strong>Click here once</strong> to enable browser audio output for YouTube iframe</span>
-  </div>
-
-  <!-- Hidden YouTube Iframe -->
-  <div id="yt-player-wrap">
-    <div id="ytplayer"></div>
-  </div>
-
   <!-- YouTube Iframe API -->
   <script src="https://www.youtube.com/iframe_api"></script>
 
@@ -681,16 +649,25 @@ function getPlayerHtml() {
     let currentIndex = -1;
     let isPlaying = false;
     let progressTimer = null;
-    let audioUnlocked = false;
+    let pendingTrack = null;
 
+    // Connect SSE and initialize immediately
+    window.addEventListener('DOMContentLoaded', () => {
+      connectEventSource();
+      fetchInitialStatus();
+      setInterval(pollStatusBackup, 2500);
+    });
+
+    // YouTube Iframe API Callback
     function onYouTubeIframeAPIReady() {
+      console.log('Initializing YouTube Iframe Player...');
       ytPlayer = new YT.Player('ytplayer', {
-        height: '360',
-        width: '640',
+        height: '100%',
+        width: '100%',
         playerVars: {
           'autoplay': 1,
-          'controls': 0,
-          'disablekb': 1,
+          'controls': 1,
+          'disablekb': 0,
           'enablejsapi': 1,
           'origin': window.location.origin
         },
@@ -704,53 +681,59 @@ function getPlayerHtml() {
 
     function onPlayerReady(event) {
       isYtReady = true;
-      console.log('✓ YouTube Player API ready');
-      connectEventSource();
-      fetchInitialStatus();
-    }
-
-    function unlockAudio() {
-      audioUnlocked = true;
-      document.getElementById('audioUnlock').style.display = 'none';
-      if (ytPlayer && ytPlayer.unMute) {
-        ytPlayer.unMute();
+      console.log('✓ YouTube Player API is Ready!');
+      if (pendingTrack) {
+        playTrack(pendingTrack, currentIndex);
+        pendingTrack = null;
       }
     }
 
     function onPlayerStateChange(event) {
-      // YT.PlayerState: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (cued)
       const stateId = event.data;
       if (stateId === YT.PlayerState.PLAYING) {
         setPlayingUI(true);
         postStateUpdate('PLAYING');
+        document.getElementById('unmuteBanner').style.display = 'none';
       } else if (stateId === YT.PlayerState.PAUSED) {
         setPlayingUI(false);
         postStateUpdate('PAUSED');
       } else if (stateId === YT.PlayerState.ENDED) {
         setPlayingUI(false);
         postStateUpdate('STOPPED');
-        // Notify server that current song ended -> server auto advances to next track!
+        console.log('Track ended, auto-advancing next track in queue...');
         notifySongEnded();
       }
     }
 
     function onPlayerError(event) {
       console.error('YouTube Player Error code:', event.data);
-      // If video blocked or unplayable, automatically skip to next song
-      notifySongEnded();
+      // Automatically advance to next song if video is restricted or unavailable
+      setTimeout(notifySongEnded, 2000);
     }
+
+    function enableAudioOutput() {
+      if (ytPlayer && ytPlayer.unMute) {
+        ytPlayer.unMute();
+        ytPlayer.playVideo();
+      }
+      document.getElementById('unmuteBanner').style.display = 'none';
+    }
+
+    // Window click unlocks browser autoplay audio policy
+    window.addEventListener('click', () => {
+      if (ytPlayer && ytPlayer.isMuted && ytPlayer.isMuted()) {
+        enableAudioOutput();
+      }
+    });
 
     function setPlayingUI(playing) {
       isPlaying = playing;
       const btn = document.getElementById('btnPlayPause');
-      const wrap = document.getElementById('albumArtWrap');
       if (playing) {
         btn.textContent = '⏸';
-        wrap.classList.add('playing');
         startProgressLoop();
       } else {
         btn.textContent = '▶';
-        wrap.classList.remove('playing');
         stopProgressLoop();
       }
     }
@@ -812,17 +795,20 @@ function getPlayerHtml() {
 
       document.getElementById('songTitle').textContent = track.title;
       document.getElementById('songArtist').textContent = track.artist;
-      if (track.thumbnail) {
-        document.getElementById('albumArt').src = track.thumbnail;
-      }
       document.getElementById('totalDuration').textContent = track.durationFormatted || '00:00';
 
       renderQueueList();
 
-      if (ytPlayer && ytPlayer.loadVideoById) {
-        ytPlayer.loadVideoById(track.videoId);
-        ytPlayer.playVideo();
-        setPlayingUI(true);
+      if (isYtReady && ytPlayer && ytPlayer.loadVideoById) {
+        try {
+          ytPlayer.loadVideoById(track.videoId);
+          ytPlayer.playVideo();
+          setPlayingUI(true);
+        } catch (err) {
+          console.warn('Direct play error:', err);
+        }
+      } else {
+        pendingTrack = track;
       }
     }
 
@@ -869,7 +855,6 @@ function getPlayerHtml() {
       });
     }
 
-    // Server-Sent Events Listener for Telegram Remote Control
     function connectEventSource() {
       const evtSource = new EventSource('/api/events');
 
@@ -920,10 +905,6 @@ function getPlayerHtml() {
         document.getElementById('songArtist').textContent = 'Send /play <song> to Telegram Bot';
         renderQueueList();
         updateProgressUI(0, 0);
-      } else if (msg.action === 'seek') {
-        if (ytPlayer && ytPlayer.seekTo) {
-          ytPlayer.seekTo(msg.time || 0, true);
-        }
       }
     }
 
@@ -960,13 +941,25 @@ function getPlayerHtml() {
           renderQueueList();
           if (data.current_track) {
             playTrack(data.current_track, data.currentIndex);
-            if (data.playbackState === 'PAUSED') {
-              if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+            if (data.playbackState === 'PAUSED' && ytPlayer && ytPlayer.pauseVideo) {
+              ytPlayer.pauseVideo();
               setPlayingUI(false);
             }
           }
         })
         .catch(console.error);
+    }
+
+    function pollStatusBackup() {
+      fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+          if (data.current_track && (!currentTrack || currentTrack.videoId !== data.current_track.videoId)) {
+            queue = data.queue || [];
+            playTrack(data.current_track, data.currentIndex);
+          }
+        })
+        .catch(() => {});
     }
   </script>
 </body>
@@ -989,7 +982,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Helper to read JSON request body
   const readJsonBody = () => new Promise((resolve) => {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -1036,6 +1028,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       enabled: state.enabled,
+      autoPlayPC: state.autoPlayPC,
       is_playing: state.playbackState === 'PLAYING',
       playbackState: state.playbackState,
       current_track: currentTrack,
@@ -1062,7 +1055,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 5. Search Songs using ytmusic-api
+  // 5. Toggle Auto-Play on PC
+  if (pathname === '/api/autoplay' && req.method === 'POST') {
+    const body = await readJsonBody();
+    if (typeof body.autoPlayPC === 'boolean') {
+      state.autoPlayPC = body.autoPlayPC;
+    } else {
+      state.autoPlayPC = !state.autoPlayPC;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ autoPlayPC: state.autoPlayPC }));
+    return;
+  }
+
+  // 6. Search Songs using ytmusic-api
   if (pathname === '/api/search' && req.method === 'GET') {
     const q = reqUrl.searchParams.get('q');
     if (!q) {
@@ -1082,7 +1088,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 6. Play Command (Single track or search query)
+  // 7. Play Command (Single track or search query)
   if (pathname === '/api/play' && req.method === 'POST') {
     const body = await readJsonBody();
     try {
@@ -1107,7 +1113,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // Check if user wants to append or replace queue
       if (body.enqueue) {
         state.queue.push(trackToPlay);
         if (state.playbackState === 'STOPPED' || state.currentIndex === -1) {
@@ -1124,8 +1129,8 @@ const server = http.createServer(async (req, res) => {
         broadcast('play', { track: trackToPlay, index: 0, queue: state.queue });
       }
 
-      // Auto-launch web player in PC browser if not already open
-      if (sseClients.size === 0) {
+      // If AutoPlayPC is true and browser is not connected, open it in default browser
+      if (state.autoPlayPC && sseClients.size === 0) {
         openPlayerInBrowser();
       }
 
@@ -1134,7 +1139,8 @@ const server = http.createServer(async (req, res) => {
         status: 'playing',
         track: trackToPlay,
         index: state.currentIndex,
-        queue: state.queue
+        queue: state.queue,
+        autoPlayPC: state.autoPlayPC
       }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1143,7 +1149,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 7. Create and Auto-Play Playlist
+  // 8. Create and Auto-Play Playlist
   if (pathname === '/api/playlist' && req.method === 'POST') {
     const body = await readJsonBody();
     const query = body.query || body.theme || '';
@@ -1173,16 +1179,14 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // Set new queue
       state.queue = playlistTracks;
       state.currentIndex = 0;
       state.playbackState = 'PLAYING';
 
-      // Broadcast queue and start first track
       broadcast('load_queue', { queue: state.queue, currentIndex: 0 });
       broadcast('play', { track: state.queue[0], index: 0, queue: state.queue });
 
-      if (sseClients.size === 0) {
+      if (state.autoPlayPC && sseClients.size === 0) {
         openPlayerInBrowser();
       }
 
@@ -1192,7 +1196,8 @@ const server = http.createServer(async (req, res) => {
         title: playlistTitle,
         count: state.queue.length,
         tracks: state.queue,
-        current_track: state.queue[0]
+        current_track: state.queue[0],
+        autoPlayPC: state.autoPlayPC
       }));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1201,7 +1206,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 8. Playback Controls: Pause, Resume, Next, Prev, Stop, Seek, Jump
+  // 9. Playback Controls
   if (pathname === '/api/pause' && req.method === 'POST') {
     state.playbackState = 'PAUSED';
     broadcast('pause');
@@ -1213,6 +1218,9 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/resume' && req.method === 'POST') {
     state.playbackState = 'PLAYING';
     broadcast('resume');
+    if (state.autoPlayPC && sseClients.size === 0) {
+      openPlayerInBrowser();
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'resumed' }));
     return;
@@ -1284,7 +1292,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 9. Browser Client State Feedback
+  // 10. Browser Client State Feedback
   if (pathname === '/api/player/state' && req.method === 'POST') {
     const body = await readJsonBody();
     if (body.playbackState) state.playbackState = body.playbackState;
@@ -1295,7 +1303,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 10. Browser notifies that Current Song Ended -> Auto Advance!
+  // 11. Browser notifies that Current Song Ended -> Auto Advance!
   if (pathname === '/api/player/ended' && req.method === 'POST') {
     console.log(`[Music Server] Track finished: ${state.currentIndex + 1}/${state.queue.length}`);
     if (state.currentIndex + 1 < state.queue.length) {
@@ -1326,6 +1334,7 @@ server.listen(PORT, HOST, () => {
   console.log(`🎵 Antigravity PC Music Player Server`);
   console.log(`• Web Player UI : http://localhost:${PORT}/player`);
   console.log(`• Remote API    : http://localhost:${PORT}/api`);
+  console.log(`• Auto-Play PC  : ${state.autoPlayPC ? 'Enabled' : 'Disabled'}`);
   console.log(`• Status        : Active & ready for Telegram commands`);
   console.log(`=======================================================`);
 });

@@ -9,6 +9,7 @@ import re
 import urllib.parse
 from dotenv import load_dotenv
 import requests
+import webbrowser
 from typing import Optional, Dict, Any, List
 import telebot
 from telebot import types
@@ -144,12 +145,64 @@ def update_bot_commands():
 # PC Music Remote & Player Management (ytmusic-api + YouTube Iframe)
 # ==============================================================================
 MUSIC_FEATURE_ENABLED = os.environ.get("MUSIC_FEATURE_ENABLED", "true").strip().lower() in ("true", "1", "yes")
+MUSIC_AUTO_PLAY_PC = os.environ.get("MUSIC_AUTO_PLAY_PC", "true").strip().lower() in ("true", "1", "yes")
 MUSIC_PLAYER_PORT = os.environ.get("MUSIC_PLAYER_PORT", "8002").strip()
 MUSIC_PLAYER_URL = f"http://127.0.0.1:{MUSIC_PLAYER_PORT}"
 
 def is_music_enabled() -> bool:
     global MUSIC_FEATURE_ENABLED
     return MUSIC_FEATURE_ENABLED
+
+def is_auto_play_pc() -> bool:
+    global MUSIC_AUTO_PLAY_PC
+    return MUSIC_AUTO_PLAY_PC
+
+def set_auto_play_pc(val: bool):
+    global MUSIC_AUTO_PLAY_PC
+    MUSIC_AUTO_PLAY_PC = val
+    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            if "MUSIC_AUTO_PLAY_PC=" in content:
+                content = re.sub(r"MUSIC_AUTO_PLAY_PC=.*", f"MUSIC_AUTO_PLAY_PC={'true' if val else 'false'}", content)
+            else:
+                content += f"\nMUSIC_AUTO_PLAY_PC={'true' if val else 'false'}\n"
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            logger.error(f"Error saving MUSIC_AUTO_PLAY_PC to .env: {e}")
+    try:
+        requests.post(f"{MUSIC_PLAYER_URL}/api/autoplay", json={"autoPlayPC": val}, timeout=2)
+    except Exception:
+        pass
+
+def open_pc_player():
+    """Opens the local YouTube music player in a fresh visible window on PC."""
+    player_url = f"{MUSIC_PLAYER_URL}/player"
+    logger.info(f"Triggering PC Player open at {player_url}")
+
+    if sys.platform == "win32":
+        try:
+            # cmd /c start "" executes through desktop shell association without Chrome profile lock collision
+            subprocess.Popen(f'cmd.exe /c start "" "{player_url}"', shell=True)
+        except Exception as e:
+            logger.warning(f"Failed to launch via cmd start: {e}")
+            try:
+                subprocess.Popen(f'explorer.exe "{player_url}"', shell=True)
+            except Exception:
+                pass
+
+    try:
+        webbrowser.open(player_url, new=1)
+    except Exception:
+        pass
+
+    try:
+        requests.post(f"{MUSIC_PLAYER_URL}/api/open", timeout=3)
+    except Exception:
+        pass
 
 def set_music_enabled(val: bool):
     global MUSIC_FEATURE_ENABLED
@@ -224,9 +277,11 @@ def make_music_keyboard(playback_state="PLAYING"):
     stop_btn = types.InlineKeyboardButton(text="⏹️ Stop", callback_data="music_ctrl:stop")
     link_btn = types.InlineKeyboardButton(text="📱 Link ke HP", callback_data="music_ctrl:link")
     queue_btn = types.InlineKeyboardButton(text="📜 Antrean Lagu", callback_data="music_ctrl:queue")
+    open_btn = types.InlineKeyboardButton(text="🖥️ Buka Layar Player PC", callback_data="music_ctrl:open")
     
     markup.row(prev_btn, play_pause_btn, next_btn)
     markup.row(stop_btn, link_btn, queue_btn)
+    markup.row(open_btn)
     return markup
 
 def format_track_card(track: dict, status_badge: str = "🔊 Memutar di PC") -> str:
@@ -236,6 +291,7 @@ def format_track_card(track: dict, status_badge: str = "🔊 Memutar di PC") -> 
     dur = track.get("durationFormatted", "00:00")
     yt_url = track.get("youtubeUrl", f"https://www.youtube.com/watch?v={track.get('videoId')}")
     ytm_url = track.get("ytMusicUrl", f"https://music.youtube.com/watch?v={track.get('videoId')}")
+    auto_pc = is_auto_play_pc()
     
     card = (
         f"🎵 **{status_badge}**\n\n"
@@ -249,8 +305,11 @@ def format_track_card(track: dict, status_badge: str = "🔊 Memutar di PC") -> 
         f"🔗 **Direct Links:**\n"
         f"• [Buka di YouTube Web / App]({yt_url})\n"
         f"• [Buka di YouTube Music]({ytm_url})\n\n"
-        f"💻 *Lagu sedang diputar di PC aktif via YouTube iframe player.*"
     )
+    if auto_pc:
+        card += f"💻 *Lagu otomatis diputar di layar PC aktif via YouTube Player.*"
+    else:
+        card += f"💡 *Mode Auto-Play PC Nonaktif. Klik tombol 'Buka Layar Player PC' jika ingin memutar di PC!*"
     return card
 
 def get_system_prompt(project_name: str, project_path: str) -> str:
@@ -551,12 +610,19 @@ def reset_history(message):
     except Exception:
         pass
 
+@bot.message_handler(commands=['player', 'open'])
+def cmd_open_player(message):
+    if not is_user_authorized(message.from_user.id):
+        return
+    open_pc_player()
+    bot.reply_to(message, "🖥️ **Membuka layar Player YouTube di PC...**\nAlamat: `http://localhost:8002/player`", parse_mode="Markdown")
+
 @bot.message_handler(commands=['music'])
 def cmd_music(message):
     if not is_user_authorized(message.from_user.id):
         return
     
-    args = message.text.split(maxsplit=1)
+    args = message.text.split(maxsplit=2)
     if len(args) > 1:
         sub = args[1].strip().lower()
         if sub in ["on", "enable", "aktif", "1"]:
@@ -567,14 +633,26 @@ def cmd_music(message):
             set_music_enabled(False)
             bot.reply_to(message, "⛔ **Fitur PC Music Remote dinonaktifkan.**", parse_mode="Markdown")
             return
+        elif sub == "autoplay" and len(args) > 2:
+            sub2 = args[2].strip().lower()
+            if sub2 in ["on", "enable", "aktif", "1"]:
+                set_auto_play_pc(True)
+                bot.reply_to(message, "✅ **Auto-Play di PC diaktifkan!**\nSetiap memutar lagu, browser PC akan otomatis memutarnya.", parse_mode="Markdown")
+                return
+            elif sub2 in ["off", "disable", "nonaktif", "0"]:
+                set_auto_play_pc(False)
+                bot.reply_to(message, "⛔ **Auto-Play di PC dinonaktifkan.**\nBot hanya menyiapkan antrean & memberi link HP tanpa memaksa browser PC terbuka.", parse_mode="Markdown")
+                return
     
     st = get_music_status()
     enabled = is_music_enabled()
+    auto_pc = is_auto_play_pc()
     server_online = st is not None
     
     status_text = (
-        f"🎛️ **PC Music Remote Control:**\n\n"
+        f"🎛️ **PC Music Remote Control & Settings:**\n\n"
         f"• Status Fitur: {'✅ Aktif' if enabled else '⛔ Nonaktif'}\n"
+        f"• Auto-Play di PC: {'✅ Aktif (Lagu otomatis diputar di layar PC)' if auto_pc else '⛔ Nonaktif (Hanya antrean & link HP)'}\n"
         f"• Music Server: {'🟢 Online (Port ' + MUSIC_PLAYER_PORT + ')' if server_online else '🔴 Offline (Jalankan start_services.bat)'}\n"
     )
     if server_online and st:
@@ -589,10 +667,12 @@ def cmd_music(message):
         "\n📌 **Perintah Musik:**\n"
         "• `/play <judul lagu/artis>` - Putar lagu di PC\n"
         "• `/playlist <tema/artis>` - Buat playlist & auto-play\n"
+        "• `/player` - Buka layar player YouTube di PC\n"
         "• `/pause` | `/resume` | `/next` | `/prev` | `/stop`\n"
         "• `/link` - Minta link lagu ke HP\n"
         "• `/queue` - Lihat antrean playlist\n"
         "• `/music on` / `/music off` - Aktifkan / Nonaktifkan fitur\n"
+        "• `/music autoplay on` / `off` - Setup auto-play di PC\n"
     )
     
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -600,8 +680,13 @@ def cmd_music(message):
         text="⛔ Nonaktifkan Fitur" if enabled else "✅ Aktifkan Fitur",
         callback_data=f"music_toggle:{'disable' if enabled else 'enable'}"
     )
-    open_btn = types.InlineKeyboardButton(text="🖥️ Buka Player di PC", callback_data="music_ctrl:open")
-    markup.row(toggle_btn, open_btn)
+    autoplay_btn = types.InlineKeyboardButton(
+        text="🖥️ Auto-Play PC: ON" if auto_pc else "🖥️ Auto-Play PC: OFF",
+        callback_data="music_toggle:autoplay"
+    )
+    open_btn = types.InlineKeyboardButton(text="🚀 Buka Layar Player di PC", callback_data="music_ctrl:open")
+    markup.row(toggle_btn, autoplay_btn)
+    markup.row(open_btn)
     
     bot.send_message(message.chat.id, status_text, parse_mode="Markdown", reply_markup=markup)
 
@@ -638,7 +723,9 @@ def cmd_play(message):
         
     if code == 200 and "track" in res:
         track = res["track"]
-        text = format_track_card(track, status_badge="🔊 Memutar di PC")
+        if is_auto_play_pc():
+            open_pc_player()
+        text = format_track_card(track, status_badge="🔊 Memutar di PC" if is_auto_play_pc() else "📋 Lagu Disiapkan")
         bot.send_message(message.chat.id, text, parse_mode="Markdown", reply_markup=make_music_keyboard("PLAYING"))
     else:
         err = res.get("error", "Gagal memutar lagu.")
@@ -672,7 +759,8 @@ def cmd_playlist(message):
         tracks = res["tracks"]
         pl_title = res.get("title", query)
         count = len(tracks)
-        
+        if is_auto_play_pc():
+            open_pc_player()
         lines = [f"📋 **Playlist Berhasil Dibuat: {pl_title}**", f"✨ Ditemukan **{count} lagu** dari YouTube Music:\n"]
         for idx, t in enumerate(tracks[:10]):
             cur_mark = " 🔊 *(Sedang diputar)*" if idx == 0 else ""
@@ -794,13 +882,16 @@ def cmd_queue(message):
     
     bot.send_message(message.chat.id, "\n".join(lines), parse_mode="Markdown", reply_markup=make_music_keyboard(st.get("playbackState", "PLAYING")))
 
+def safe_answer_callback(call_id: str, text: str = None):
+    try:
+        bot.answer_callback_query(call_id, text=text)
+    except Exception:
+        pass
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("music_ctrl:") or call.data.startswith("music_toggle:"))
 def callback_music_control(call):
     if not is_user_authorized(call.from_user.id):
-        try:
-            bot.answer_callback_query(call.id, "Access denied.")
-        except Exception:
-            pass
+        safe_answer_callback(call.id, "Access denied.")
         return
         
     data = call.data
@@ -808,31 +899,41 @@ def callback_music_control(call):
         action = data.split("music_toggle:")[1]
         if action == "enable":
             set_music_enabled(True)
-            bot.answer_callback_query(call.id, "Fitur Musik Diaktifkan!")
+            safe_answer_callback(call.id, "Fitur Musik Diaktifkan!")
             bot.send_message(call.message.chat.id, "✅ **Fitur PC Music Remote diaktifkan!**\nKetik `/play <lagu>` atau `/playlist <tema>` untuk mencoba.", parse_mode="Markdown")
-        else:
+        elif action == "disable":
             set_music_enabled(False)
-            bot.answer_callback_query(call.id, "Fitur Musik Dinonaktifkan.")
+            safe_answer_callback(call.id, "Fitur Musik Dinonaktifkan.")
             bot.send_message(call.message.chat.id, "⛔ **Fitur PC Music Remote dinonaktifkan.**", parse_mode="Markdown")
+        elif action == "autoplay":
+            new_val = not is_auto_play_pc()
+            set_auto_play_pc(new_val)
+            safe_answer_callback(call.id, f"Auto-Play PC: {'Aktif' if new_val else 'Nonaktif'}")
+            bot.send_message(call.message.chat.id, f"🖥️ **Auto-Play Lagu di PC:** {'✅ **Aktif** (Lagu otomatis diputar di layar PC)' if new_val else '⛔ **Nonaktif** (Hanya antrean & link HP)'}", parse_mode="Markdown")
         return
 
     ctrl = data.split("music_ctrl:")[1]
+    if ctrl == "open":
+        open_pc_player()
+        safe_answer_callback(call.id, "Membuka layar Player di PC...")
+        bot.send_message(call.message.chat.id, "🖥️ Membuka Player di PC: `http://localhost:8002/player`", parse_mode="Markdown")
+        return
     if ctrl == "pause":
         music_control("pause")
-        bot.answer_callback_query(call.id, "Di-pause")
+        safe_answer_callback(call.id, "Di-pause")
         try:
             bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=make_music_keyboard("PAUSED"))
         except Exception:
             pass
     elif ctrl == "resume":
         music_control("resume")
-        bot.answer_callback_query(call.id, "Melanjutkan pemutaran")
+        safe_answer_callback(call.id, "Melanjutkan pemutaran")
         try:
             bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=make_music_keyboard("PLAYING"))
         except Exception:
             pass
     elif ctrl == "next":
-        bot.answer_callback_query(call.id, "Lagu berikutnya")
+        safe_answer_callback(call.id, "Lagu berikutnya")
         code, res = music_control("next")
         if code == 200 and res.get("track"):
             text = format_track_card(res["track"], status_badge="⏭️ Lagu Berikutnya")
@@ -840,17 +941,17 @@ def callback_music_control(call):
         elif code == 200 and res.get("status") == "end_of_queue":
             bot.send_message(call.message.chat.id, "🏁 Playlist sudah mencapai akhir antrean.")
     elif ctrl == "prev":
-        bot.answer_callback_query(call.id, "Lagu sebelumnya")
+        safe_answer_callback(call.id, "Lagu sebelumnya")
         code, res = music_control("prev")
         if code == 200 and res.get("track"):
             text = format_track_card(res["track"], status_badge="⏮️ Lagu Sebelumnya")
             bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=make_music_keyboard("PLAYING"))
     elif ctrl == "stop":
         music_control("stop")
-        bot.answer_callback_query(call.id, "Berhenti")
+        safe_answer_callback(call.id, "Berhenti")
         bot.send_message(call.message.chat.id, "⏹️ Pemutaran musik di PC dihentikan.", parse_mode="Markdown")
     elif ctrl == "link":
-        bot.answer_callback_query(call.id, "Mengambil link lagu...")
+        safe_answer_callback(call.id, "Mengambil link lagu...")
         st = get_music_status()
         if st and st.get("current_track"):
             t = st["current_track"]
@@ -866,7 +967,7 @@ def callback_music_control(call):
         else:
             bot.send_message(call.message.chat.id, "ℹ️ Tidak ada lagu yang sedang diputar.")
     elif ctrl == "queue":
-        bot.answer_callback_query(call.id, "Mengambil antrean...")
+        safe_answer_callback(call.id, "Mengambil antrean...")
         st = get_music_status()
         if st and st.get("queue"):
             queue = st["queue"]
@@ -910,6 +1011,8 @@ def handle_natural_music_command(message, text: str) -> bool:
         if code == 200 and "tracks" in res:
             tracks = res["tracks"]
             title = res.get("title", pl_query)
+            if is_auto_play_pc():
+                open_pc_player()
             lines = [f"📋 **Playlist Berhasil Dibuat: {title}**", f"✨ Ditemukan **{len(tracks)} lagu** YouTube Music:\n"]
             for idx, t in enumerate(tracks[:10]):
                 cur_mark = " 🔊 *(Sedang diputar)*" if idx == 0 else ""
@@ -933,7 +1036,9 @@ def handle_natural_music_command(message, text: str) -> bool:
                 pass
             if code == 200 and "track" in res:
                 track = res["track"]
-                text_card = format_track_card(track, status_badge="🔊 Memutar di PC")
+                if is_auto_play_pc():
+                    open_pc_player()
+                text_card = format_track_card(track, status_badge="🔊 Memutar di PC" if is_auto_play_pc() else "📋 Lagu Disiapkan")
                 bot.send_message(message.chat.id, text_card, parse_mode="Markdown", reply_markup=make_music_keyboard("PLAYING"))
             else:
                 bot.send_message(message.chat.id, f"⚠️ {res.get('error', 'Gagal menemukan lagu.')}")
